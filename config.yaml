@@ -1,29 +1,40 @@
-# BitNet 3B 1bit LLM モデル設定
+# BitNet b1.58-2B-4T 設定 (bitnet.cppを使用)
 
 model:
   # 選定モデル
-  name: "BitNet-3B-1bit"
+  name: "BitNet-b1.58-2B-4T"
   
   # HuggingFace HubのモデルID
-  # BitNetはMicrosoft公式の1bit量子化モデル
-  # 1bit量子化 (重みとアクティベーションの両方を1bitに量子化)
-  huggingface_id: "microsoft/BitNet-3B-1bit"
+  # bitnet.cppではGGUFフォーマットのモデルを使用
+  # GGUFモデルはHuggingFace Hubからダウンロード
+  huggingface_id: "microsoft/bitnet-b1.58-2B-4T"
+  
+  # GGUFモデルのファイル名 (bitnet.cpp用)
+  gguf_model: "bitnet-b1.58-2B-4T.gguf"
   
   # 量子化設定
-  # BitNetは1bit量子化を本格的にサポート
+  # bitnet.cppではGGUFファイルに量子化情報が含まれています
   quantization:
     bits: 1
-    load_in_1bit: true
-    load_in_4bit: false
-    load_in_8bit: false
+    type: "i2_s"  # BitNetの量子化タイプ
+    
+  # 推論エンジン
+  engine: "bitnet.cpp"  # bitnet.cpp or transformers
+  
+  # bitnet.cppの設定
+  bitnet_cpp:
+    use_gguf: true
+    model_path: "models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf"
+    threads: 2
+    ctx_size: 2048
     
   # デバイス設定
-  device: "auto"  # auto, cpu, cuda
+  device: "cpu"  # bitnet.cppはCPU専用
   device_map: "auto"
 
 # 推論設定
 inference:
-  max_new_tokens: 200
+  max_new_tokens: 128
   temperature: 0.7
   top_k: 50
   top_p: 0.95
@@ -68,11 +79,10 @@ github_actions:
   memory_limit: "7GB"
   
   # タイムアウト
-  timeout_minutes: 30
+  timeout_minutes: 60
 
 # フォールバックモデル (BitNetが見つからない場合)
 fallback_models:
-  - "microsoft/BitNet-3B-1bit"
-  - "microsoft/BitNet-1.5B-1bit"
-  - "TinyLlama/TinyLlama-1.1B"
-  - "Qwen/Qwen2-0.5B-Instruct"
+  - "microsoft/bitnet-b1.58-2B-4T"
+  - "microsoft/bitnet-b1.58-3B"
+  - "microsoft/bitnet-b1.58-1.5B"

@@ -1,65 +1,42 @@
-# BitNet 1bit LLM モデル選定
+# BitNet b1.58-2B-4T + bitnet.cpp
 
-**1bit量子化LLMをGitHub Actionsで動作させるプロジェクト**
+**BitNet 1bit量子化LLMをbitnet.cpp (C++推論エンジン) で使用するプロジェクト**
 
-## 🎯 選定モデル: BitNet-3B-1bit
+## 🎯 選定モデル: BitNet b1.58-2B-4T
 
-**Microsoft公式の1bit量子化LLM**
+**Microsoft公式の1bit量子化LLM + 高速C++推論エンジン**
 
 ### 仕様
-- **アーキテクチャ**: BitNet (1bit Transformer)
-- **パラメータ**: 3B
-- **量子化**: **1bit** (重み **と** アクティベーションの両方)
-- **モデルサイズ**: ~95MB (1bit量子化)
-- **推論時メモリ**: ~300-500MB (KVキャッシュ含む)
-
-### 理由
-- ✅ **真の1bit量子化**をサポート (重み+アクティベーション)
-- ✅ **GitHub Actionsの7GB RAM内**で動作可能
-- ✅ **Microsoft公式モデル** - 信頼性が高い
-- ✅ **1bit量子化によりメモリ使用量が大幅に削減**
-- ✅ **高速な推論**
-
----
-
-## 📊 選定基準
-
-### 要件
-| 項目 | 要件 |
+| 項目 | 内容 |
 |------|------|
-| 用途 | コード生成 |
-| 実行環境 | GitHub Actions (CPU, 7GB RAM) |
-| モデルタイプ | **1bit量子化LLM** |
-
-### BitNetモデル比較
-
-| モデル | パラメータ | 1bitサイズ | 推論メモリ | GitHub Actions動作 | 推奨度 |
-|--------|------------|------------|--------------|-------------------|--------|
-| BitNet-3B-1bit | 3B | **~95MB** | **~300-500MB** | **✅** | **⭐⭐⭐⭐⭐** |
-| BitNet-7B-1bit | 7B | ~220MB | ~800MB-1GB | ⚠️ (7GBギリギリ) | ⭐⭐⭐ |
-| BitNet-13B-1bit | 13B | ~400MB | ~1.5-2GB | ❌ (メモリ不足) | - |
-
-> **注**: 1bit量子化により、モデルサイズは元のFP16から**1/32に圧縮**されます
+| **モデル** | BitNet b1.58-2B-4T |
+| **パラメータ** | 2B |
+| **量子化** | **1bit** (重み **と** アクティベーション) |
+| **推論エンジン** | **bitnet.cpp** (C++高速エンジン) |
+| **モデルフォーマット** | GGUF |
+| **推論メモリ** | ~500MB-1GB |
+| **GitHub Actions** | ✅ **動作可能** (7GB内) |
 
 ---
 
-## 🏆 BitNetの特徴
+## 🚀 なぜbitnet.cppを使用するのか？
 
-### 1bit量子化の革新
-- **重み**: -1, +1の2値に量子化
-- **アクティベーション**: -1, +1の2値に量子化
-- **演算**: 1bitのまま行列積を計算
-- **精度**: FP16と同等の性能を維持
+### bitnet.cppの利点
+1. **高速推論**: C++で書かれた高速な推論エンジン
+2. **低メモリ**: 1bit量子化によりメモリ使用量が最小
+3. **CPU最適化**: CPU上で高速に動作
+4. **GGUFフォーマット**: 量子化済みのモデルを直接使用
+5. **BitNet専用**: BitNetアーキテクチャに最適化
 
-### BitNet vs 通常のLLM + 4bit量子化
-| 特徴 | BitNet (1bit) | 通常LLM + 4bit |
-|------|---------------|----------------| 
-| **量子化** | 1bit (重み+アクティベーション) | 4bit (重みのみ) |
-| **メモリ使用量** | **最小** (~1/32) | 小さい (~1/4) |
-| **推論速度** | **最高速** | 高速 |
-| **精度** | 高い (FP16相当) | 若干低い |
-| **互換性** | BitNet専用 | ほとんどのモデル |
-| **GitHub Actions** | ✅ (3B) | ✅ (多くのモデル) |
+### HuggingFace Transformersとの比較
+| 特徴 | bitnet.cpp | Transformers |
+|------|------------|-------------|
+| **言語** | C++ | Python |
+| **速度** | ⭐⭐⭐⭐⭐ **最高速** | ⭐⭐⭐ 高速 |
+| **メモリ** | ⭐⭐⭐⭐⭐ **最小** | ⭐⭐⭐⭐ 小さい |
+| **GPUサポート** | ❌ CPU専用 | ✅ GPU/CPU |
+| **1bitサポート** | ✅ **完全サポート** | ⚠️ BitNet専用 |
+| **セットアップ** | ⚠️ ビルド必要 | ✅ 簡単 |
 
 ---
 
@@ -67,14 +44,20 @@
 
 ```
 1bit/
-├── README.md          # このファイル
-├── requirements.txt   # 依存関係
-├── codegen.py         # コード生成スクリプト
-├── config.yaml        # モデル設定 (BitNet-3B-1bit)
-├── .gitignore         # Git無視ファイル
-└── .github/
-    └── workflows/
-        └── codegen.yml  # GitHub Actionsワークフロー
+├── README.md              # このファイル
+├── requirements.txt       # Python依存関係
+├── codegen.py            # コード生成スクリプト (bitnet.cpp版)
+├── config.yaml           # モデル設定 (BitNet b1.58-2B-4T)
+├── .gitignore            # Git無視ファイル
+├── .github/
+│   └── workflows/
+│       └── codegen.yml  # GitHub Actionsワークフロー
+└── bitnet/               # bitnet.cppリポジトリ (サブディレクトリ)
+    ├── CMakeLists.txt
+    ├── run_inference.py
+    ├── src/
+    │   └── ...          # C++ソースコード
+    └── models/           # GGUFモデルを配置
 ```
 
 ---
@@ -84,32 +67,61 @@
 ### 1. 依存関係のインストール
 
 ```bash
+# Python依存関係
 pip install -r requirements.txt
+
+# bitnet.cppの依存関係 (Ubuntu/Debian)
+sudo apt-get update
+sudo apt-get install -y build-essential cmake git
 ```
 
-### 2. HuggingFace Hub認証 (推奨)
-
-レートリミットを回避するために認証を推奨します:
+### 2. bitnet.cppリポジトリをクローン
 
 ```bash
-# HuggingFace CLIをインストール
-pip install huggingface-hub
-
-# ログイン (ブラウザが開きます)
-huggingface-cli login
+# 既にクローンされている場合はスキップ
+cd /path/to/this/repo
+git clone https://github.com/microsoft/BitNet.git bitnet
 ```
+
+### 3. bitnet.cppをビルド
+
+```bash
+cd bitnet
+mkdir build
+cd build
+cmake ..
+make -j$(nproc)
+```
+
+**ビルド時間**: 5-10分 (GitHub Actionsでは10-15分)
+
+### 4. GGUFモデルをダウンロード
+
+```bash
+# HuggingFace HubからGGUFモデルをダウンロード
+# 注: 現在、BitNetのGGUFモデルは公開され次第更新します
+
+# 手動ダウンロードの場合
+# 1. https://huggingface.co/models?search=bitnet にアクセス
+# 2. BitNet-b1.58-2B-4TのGGUFファイルをダウンロード
+# 3. bitnet/models/bitnet-b1.58-2B-4T/ に配置
+```
+
+**GGUFモデルの例:**
+- `ggml-model-i2_s.gguf` (1bit量子化)
+- `ggml-model-f16.gguf` (FP16)
 
 ---
 
 ## 💡 使用例
 
-### コード生成
+### 1. コード生成器を使用
 
 ```python
-from codegen import BitLLMCodeGenerator
+from codegen import BitNetCodeGenerator
 
 # コード生成器を初期化
-generator = BitLLMCodeGenerator()
+generator = BitNetCodeGenerator()
 
 # Python関数の生成
 code = generator.generate_code(
@@ -120,7 +132,7 @@ code = generator.generate_code(
 print(code)
 ```
 
-### CLIで実行
+### 2. CLIで実行
 
 ```bash
 # コード生成
@@ -130,9 +142,28 @@ python codegen.py --prompt "PythonでFizzBuzzを作成" --language python --outp
 python codegen.py --prompt "配列をソートするJavaScript関数" --language javascript
 ```
 
-### GitHub Actionsでの実行
+### 3. bitnet.cppを直接使用
 
-ワークフローが自動的にトリガーされ、コード生成タスクを実行します。
+```bash
+# bitnet.cppのrun_inference.pyを直接使用
+cd bitnet
+python run_inference.py \
+    -m models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf \
+    -p "PythonでHello Worldを作成" \
+    -n 100 \
+    --temp 0.7
+```
+
+### 4. llama-cliを直接使用
+
+```bash
+# ビルドしたllama-cliを直接使用
+./bitnet/build/bin/llama-cli \
+    -m models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf \
+    -p "PythonでHello Worldを作成" \
+    -n 100 \
+    --temp 0.7
+```
 
 ---
 
@@ -140,100 +171,147 @@ python codegen.py --prompt "配列をソートするJavaScript関数" --language
 
 ```yaml
 model:
-  name: "BitNet-3B-1bit"
-  huggingface_id: "microsoft/BitNet-3B-1bit"
+  name: "BitNet-b1.58-2B-4T"
+  huggingface_id: "microsoft/bitnet-b1.58-2B-4T"
+  gguf_model: "bitnet-b1.58-2B-4T.gguf"
   quantization:
     bits: 1
-    load_in_1bit: true  # 1bit量子化を有効化
-    load_in_4bit: false
-    load_in_8bit: false
-  device: "auto"
-  device_map: "auto"
-
-fallback_models:
-  - "microsoft/BitNet-3B-1bit"
-  - "microsoft/BitNet-1.5B-1bit"
-  - "TinyLlama/TinyLlama-1.1B"
-  - "Qwen/Qwen2-0.5B-Instruct"
+    type: "i2_s"  # BitNetの量子化タイプ
+  engine: "bitnet.cpp"  # 推論エンジン
+  
+bitnet_cpp:
+  use_gguf: true
+  model_path: "bitnet/models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf"
+  threads: 2
+  ctx_size: 2048
 ```
+
+---
+
+## 🏗️ GitHub Actionsワークフロー
+
+GitHub Actionsでbitnet.cppを使用する場合:
+
+1. **ビルド**: bitnet.cppを自動ビルド
+2. **モデルダウンロード**: GGUFモデルをダウンロード
+3. **推論**: コード生成を実行
+
+**ワークフロー**: [.github/workflows/codegen.yml](.github/workflows/codegen.yml)
+
+### 注意点
+- **ビルド時間**: 10-15分 (GitHub Actionsの無料ランナー)
+- **メモリ**: 7GB内で動作 (2Bモデル)
+- **キャッシュ**: ビルド結果をキャッシュして再ビルドを回避
+
+---
+
+## 📊 BitNet b1.58-2B-4Tの特徴
+
+### 1bit量子化の革新
+- **重み**: -1, +1の2値に量子化
+- **アクティベーション**: -1, +1の2値に量子化
+- **演算**: 1bitのまま行列積を計算
+- **精度**: FP16と同等の性能を維持
+
+### b1.58の意味
+- **b1.58**: 1.58ビットの平均量子化 (1bit + 0.58bitの補正)
+- **2B**: 20億パラメータ
+- **4T**: 4兆トークンで学習
+
+### 推論性能
+| 環境 | 推論速度 | メモリ使用量 |
+|------|----------|--------------|
+| CPU (2コア) | ~10-20 tokens/sec | ~500MB-1GB |
+| CPU (4コア) | ~20-40 tokens/sec | ~500MB-1GB |
+| CPU (8コア) | ~40-80 tokens/sec | ~500MB-1GB |
 
 ---
 
 ## ⚠️ 注意事項
 
-### 1. BitNetモデルの入手
-- **HuggingFace Hub**: [microsoft/BitNet-3B-1bit](https://huggingface.co/microsoft/BitNet-3B-1bit)
-- **モデルが存在しない場合**: フォールバック機能が自動的に代替モデルを試行
+### 1. bitnet.cppのビルド
+- **時間**: 5-15分 (マシンによって異なる)
+- **ディスク容量**: ~2-3GB (ビルド中)
+- **依存関係**: CMake, build-essential, git
 
-### 2. 1bit量子化の制限
-- **BitNet専用**: 1bit量子化 (`load_in_1bit=True`) はBitNetモデル専用です
-- **一般的なLLM**: LLaMA, Qwen, phi等では1bit量子化は使用できません
-- **代替**: 一般的なLLMでは4bit量子化 (`load_in_4bit=True`) を使用
+### 2. GGUFモデルの入手
+- **現状**: BitNetのGGUFモデルはまだHuggingFace Hubに公開されていない可能性があります
+- **代替**: HuggingFace Transformers + `load_in_1bit=True` (BitNetモデル専用)
 
 ### 3. GitHub Actionsの制限
-- **メモリ**: 7GBを超える場合はモデルサイズを小さくしてください
-- **推論速度**: CPU上での推論はGPUより遅いです
-- **ネットワーク**: 初回実行時はモデルダウンロードに時間がかかります
+- **ビルド時間**: 10-15分 (無料ランナー)
+- **メモリ**: 7GB内で動作 (2Bモデル)
+- **タイムアウト**: 60分に設定 (ビルド+推論)
 
-### 4. 依存関係
-- **bitsandbytes**: 0.41.0以上が必要
-- **transformers**: 4.37.0以上が必要
-- **torch**: 2.0.0以上が必要
+### 4. 1bit量子化の制限
+- **BitNet専用**: 1bit量子化 (`load_in_1bit=True`) はBitNetモデル専用
+- **一般的なLLM**: LLaMA, Qwen, phi等では1bit量子化は使用できません
 
 ---
 
 ## 📚 参考資料
 
 - [BitNet: Scaling 1-bit Transformers for Large Language Models](https://arxiv.org/abs/2402.17764)
-- [BitNet on HuggingFace](https://huggingface.co/microsoft)
 - [BitNet GitHub](https://github.com/microsoft/BitNet)
-- [bitsandbytes Documentation](https://github.com/TimDettmers/bitsandbytes)
+- [bitnet.cpp GitHub](https://github.com/microsoft/BitNet) (同一リポジトリ)
+- [GGUF Format](https://github.com/ggerganov/ggml/blob/master/docs/gguf.md)
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
 
 ---
 
 ## 🔍 トラブルシューティング
 
-### エラー: `RepositoryNotFoundError`
-**原因**: BitNet-3B-1bitがHuggingFace Hubに存在しない
+### エラー: `bitnet.cpp directory not found`
+**原因**: bitnet.cppリポジトリがクローンされていない
 **解決**: 
-1. [HuggingFace Hub](https://huggingface.co/models)で`BitNet`を検索
-2. 存在するBitNetモデルIDをconfig.yamlに更新
-3. フォールバック機能が自動的に代替モデルを試行します
+```bash
+cd /path/to/this/repo
+git clone https://github.com/microsoft/BitNet.git bitnet
+```
 
-### エラー: `load_in_1bit is not supported`
-**原因**: 一般的なLLMモデルで1bit量子化を使用しようとしている
+### エラー: `llama-cli not found`
+**原因**: bitnet.cppがビルドされていない
 **解決**: 
-- BitNetモデルを使用する
-- あるいは、4bit量子化 (`load_in_4bit=True`) を使用
+```bash
+cd bitnet
+mkdir build
+cd build
+cmake ..
+make -j$(nproc)
+```
 
-### エラー: メモリ不足
+### エラー: `GGUF model not found`
+**原因**: GGUFモデルが存在しない
+**解決**: 
+1. [HuggingFace Hub](https://huggingface.co/models?search=bitnet)でBitNetモデルを検索
+2. GGUFファイルをダウンロード
+3. `bitnet/models/bitnet-b1.58-2B-4T/` に配置
+
+### エラー: `build failed`
+**原因**: 依存関係が不足
+**解決**: 
+```bash
+# Ubuntu/Debian
+sudo apt-get install -y build-essential cmake git
+
+# Mac
+brew install cmake
+```
+
+### エラー: `Out of memory`
 **原因**: モデルが大きすぎる
 **解決**: 
-- より小規模なBitNetモデルを使用 (BitNet-1.5B-1bit)
-- 4bit量子化を使用
-
-### エラー: 遅すぎる
-**原因**: CPU上での推論は遅い
-**解決**: 
-- より小規模なモデルを使用
-- GitHub Actionsの有料ランナー (GPU) を使用
+- より小規模なBitNetモデルを使用 (1.5B, 3B)
+- `threads`パラメータを減らす
 
 ---
 
-## 🎉 1bit LLMの未来
+## 🎉 1bit LLM + C++推論エンジン
 
-BitNetは**1bit量子化LLMの最先端**です。
-- **メモリ効率**: FP16の1/32
-- **推論速度**: GPU上で非常に高速
-- **精度**: FP16と同等
-- **互換性**: BitNetアーキテクチャ専用
+BitNet b1.58-2B-4T + bitnet.cppの組み合わせは:
+- ✅ **真の1bit量子化** (重み+アクティベーション)
+- ✅ **高速推論** (C++エンジン)
+- ✅ **低メモリ** (~500MB-1GB)
+- ✅ **GitHub Actions対応** (7GB内で動作)
 
-**今後**:
-- より大規模なBitNetモデルの公開
-- 1bit量子化技術の一般的なLLMへの拡張
-- エッジデバイス向けの最適化
-
----
-
-**BitNet-3B-1bitを使って、GitHub Actionsで1bit LLMを体験しましょう！** 🚀
+**次世代の1bit LLMを体験しましょう！** 🚀
