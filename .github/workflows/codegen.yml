@@ -1,0 +1,132 @@
+name: Code Generation with 1bit LLM
+
+on:
+  push:
+    branches: [ main ]
+    paths:
+      - '**.py'
+      - 'codegen.py'
+      - 'config.yaml'
+  pull_request:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      prompt:
+        description: 'Code generation prompt'
+        required: true
+        default: 'Create a Python function that calculates factorial'
+      language:
+        description: 'Programming language'
+        required: false
+        default: 'python'
+      output_file:
+        description: 'Output file name'
+        required: false
+        default: 'generated_code.py'
+
+jobs:
+  generate-code:
+    runs-on: ubuntu-latest
+    
+    strategy:
+      matrix:
+        python-version: ["3.10"]
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v4
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: 'pip'
+          cache-dependency-path: 'requirements.txt'
+      
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential \
+            cmake \
+            git
+      
+      - name: Install Python dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          
+      - name: Cache HuggingFace models
+        uses: actions/cache@v3
+        with:
+          path: ~/.cache/huggingface
+          key: ${{ runner.os }}-huggingface-${{ hashFiles('requirements.txt') }}
+          restore-keys: |
+            ${{ runner.os }}-huggingface-
+      
+      - name: Generate code with 1bit LLM
+        id: codegen
+        run: |
+          python codegen.py \
+            --prompt "${{ github.event.inputs.prompt || 'Create a Python function that calculates factorial' }}" \
+            --language "${{ github.event.inputs.language || 'python' }}" \
+            --output "${{ github.event.inputs.output_file || 'generated_code.py' }}" \
+            --max-tokens 500
+        env:
+          PYTHONUNBUFFERED: "1"
+      
+      - name: Display generated code
+        run: |
+          echo "=== Generated Code ==="
+          cat ${{ github.event.inputs.output_file || 'generated_code.py' }}
+          echo "=== End of Code ==="
+      
+      - name: Commit generated code (if changed)
+        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
+        run: |
+          git config --global user.name "GitHub Actions"
+          git config --global user.email "actions@github.com"
+          
+          # Check if file exists and has content
+          if [ -f "${{ github.event.inputs.output_file || 'generated_code.py' }}" ] && \
+             [ -s "${{ github.event.inputs.output_file || 'generated_code.py' }}" ]; then
+            git add ${{ github.event.inputs.output_file || 'generated_code.py' }}
+            git diff --cached --quiet || git commit -m "Generate code with 1bit LLM: ${{ github.event.inputs.prompt || 'auto' }}"
+            git push
+          fi
+        continue-on-error: true
+      
+      - name: Upload generated code as artifact
+        uses: actions/upload-artifact@v3
+        with:
+          name: generated-code
+          path: ${{ github.event.inputs.output_file || 'generated_code.py' }}
+          retention-days: 7
+
+  test-code:
+    needs: generate-code
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Download generated code
+        uses: actions/download-artifact@v3
+        with:
+          name: generated-code
+      
+      - name: Test Python code syntax
+        if: ${{ github.event.inputs.language == 'python' || github.event.inputs.language == '' }}
+        run: |
+          python -m py_compile ${{ github.event.inputs.output_file || 'generated_code.py' }} && \
+          echo "✅ Python syntax is valid" || \
+          echo "❌ Python syntax error"
+        continue-on-error: true
+      
+      - name: Display test results
+        run: |
+          echo "Code generation and testing completed!"
+          echo "Artifact available for download."

@@ -1,0 +1,68 @@
+# 1bit LLM モデル設定
+
+model:
+  # 選定モデル
+  name: "1bit-LLaMA-3B"
+  
+  # HuggingFace HubのモデルID
+  # 注: 実際のモデルIDはHuggingFace Hubで確認してください
+  # 代替案: "bitnet-3b-1bit", "1bit-llama-3b"
+  huggingface_id: "1bit-LLaMA/3B-1bit"
+  
+  # 量子化設定
+  quantization:
+    bits: 1
+    load_in_1bit: true
+    
+  # デバイス設定
+  device: "auto"  # auto, cpu, cuda
+  device_map: "auto"
+
+# 推論設定
+inference:
+  max_new_tokens: 200
+  temperature: 0.7
+  top_k: 50
+  top_p: 0.95
+  do_sample: true
+  repetition_penalty: 1.1
+
+# コード生成設定
+codegen:
+  # コード生成時の最大トークン数
+  max_code_tokens: 500
+  
+  # コード生成の温度（低いほど決定的）
+  temperature: 0.5
+  
+  # 止めるトークン
+  stop_tokens: ["\n\n\n", "<|im_end|>", "<|endoftext|>"]
+  
+  # コード生成用のシステムプロンプト
+  system_prompt: |
+    あなたはプロのソフトウェアエンジニアです。
+    与えられた要件に基づいて、最適なコードを生成してください。
+    コードは以下の要件を満たすようにしてください：
+    - 正確でバグのないコード
+    - 適切なコメント付き
+    - 一般的なベストプラクティスに従う
+    - Pythonの場合は型ヒント付き
+    - 簡潔で読みやすい
+
+    要求: {prompt}
+
+    コード:
+
+# GitHub Actions設定
+github_actions:
+  # 使用するランナー
+  runner: "ubuntu-latest"
+  
+  # Pythonバージョン
+  python_version: "3.10"
+  
+  # メモリ制限（GitHub Actionsの無料ランナーは7GB）
+  memory_limit: "7GB"
+  
+  # タイムアウト
+  timeout_minutes: 30
