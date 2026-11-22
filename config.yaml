@@ -2,12 +2,12 @@
 
 model:
   # 選定モデル
-  name: "1bit-LLaMA-3B"
+  name: "TinyLlama-1.1B-1bit"
   
   # HuggingFace HubのモデルID
-  # 注: 実際のモデルIDはHuggingFace Hubで確認してください
-  # 代替案: "bitnet-3b-1bit", "1bit-llama-3b"
-  huggingface_id: "1bit-LLaMA/3B-1bit"
+  # 1bit量子化はload_in_1bit=Trueで自動的に適用されます
+  # 代替モデル: "Qwen/Qwen2-0.5B", "microsoft/phi-2", "TinyLlama/TinyLlama-1.1B"
+  huggingface_id: "TinyLlama/TinyLlama-1.1B"
   
   # 量子化設定
   quantization:

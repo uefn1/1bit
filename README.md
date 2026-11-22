@@ -2,13 +2,13 @@
 
 ## 🎯 選定結果
 
-**選定モデル: [1bit-LLaMA-3B](https://huggingface.co/)**
+**選定モデル: [TinyLlama-1.1B](https://huggingface.co/TinyLlama/TinyLlama-1.1B) + 1bit量子化**
 
 ### 理由
 - **GitHub Actions環境** (2 vCPU, 7GB RAM) で動作可能
-- **1bit量子化**によりメモリ使用量が大幅に削減 (元の1/32)
-- **LLaMAアーキテクチャ**はコード生成に優れている
-- **3Bパラメータ**はバランスが良い (小規模すぎず、大規模すぎず)
+- **1bit量子化** (`load_in_1bit=True`) によりメモリ使用量が大幅に削減
+- **TinyLlama-1.1B** (1.1Bパラメータ) は軽量でコード生成に適切
+- **フォールバック機能**により、モデルが見つからない場合に自動的に代替モデルを試行
 
 ---
 
@@ -23,13 +23,13 @@
 
 ### 候補比較
 
-| モデル | パラメータ | 1bitサイズ | メモリ使用量 | コード生成性能 | GitHub Actions動作 | 推奨度 |
-|--------|------------|------------|--------------|----------------|-------------------|--------|
-| BitNet b1.58 | 58B | ~1.8GB | ~4-5GB | ⭐⭐⭐⭐⭐ | ❌ (メモリ不足) | - |
-| **1bit-LLaMA-7B** | 7B | ~220MB | ~1-2GB | ⭐⭐⭐⭐⭐ | ⚠️ (遅い) | ⭐⭐⭐ |
-| **1bit-LLaMA-3B** | 3B | ~95MB | ~300-500MB | ⭐⭐⭐⭐ | ✅ | **⭐⭐⭐⭐⭐** |
-| 1bit-LLaMA-1.5B | 1.5B | ~47MB | ~200-300MB | ⭐⭐⭐ | ✅ | ⭐⭐⭐⭐ |
-| TinyLLaMA-1bit | 1B | ~30MB | ~150MB | ⭐⭐ | ✅ | ⭐⭐⭐ |
+| モデル | パラメータ | FP16サイズ | 1bitサイズ | 推論メモリ | コード生成性能 | GitHub Actions動作 | 推奨度 |
+|--------|------------|------------|------------|--------------|----------------|-------------------|--------|
+| BitNet b1.58 | 58B | ~116GB | ~3.6GB | ~6-8GB | ⭐⭐⭐⭐⭐ | ❌ (メモリ不足) | - |
+| phi-2 | 2.7B | ~5.4GB | ~170MB | ~800MB-1GB | ⭐⭐⭐⭐⭐ | ⚠️ (7GBギリギリ) | ⭐⭐⭐ |
+| **TinyLlama-1.1B** | 1.1B | ~2.2GB | **~70MB** | **~200-400MB** | ⭐⭐⭐⭐ | **✅** | **⭐⭐⭐⭐⭐** |
+| Qwen2-0.5B | 0.5B | ~1GB | ~30MB | ~100-200MB | ⭐⭐⭐ | ✅ | ⭐⭐⭐⭐ |
+| TinyLLaMA | 1B | ~2GB | ~60MB | ~150-300MB | ⭐⭐⭐ | ✅ | ⭐⭐⭐ |
 
 > **注**: 1bit量子化により、モデルサイズは元の16bit浮動小数点から1/32に圧縮されます
 
@@ -37,14 +37,14 @@
 
 ## 🏆 選定モデル詳細
 
-### 1bit-LLaMA-3B
+### TinyLlama-1.1B + 1bit量子化
 
 **仕様**
 - アーキテクチャ: LLaMA
-- パラメータ: 3B
-- 量子化: 1bit (重みとアクティベーション)
-- 1bitモデルサイズ: ~95MB
-- 推論時メモリ: ~300-500MB (KVキャッシュ含む)
+- パラメータ: 1.1B
+- 量子化: 1bit (重み、`load_in_1bit=True`で適用)
+- FP16モデルサイズ: ~2.2GB → **1bit化で~70MB**
+- 推論時メモリ: ~200-400MB (KVキャッシュ含む)
 
 **特徴**
 - ✅ GitHub Actionsの7GB RAM内で余裕を持って動作
@@ -60,17 +60,25 @@
 
 ---
 
-## 🚀 代替案
+## 💼 代替モデル候補
 
-### 第2候補: BitNet-3B-1bit (Microsoft)
-- Microsoft公式の1bitモデル
-- 精度が若干高い
+### 第2候補: Qwen2-0.5B + 1bit
+- **0.5Bパラメータ** - 非常に軽量
+- 推論メモリ: ~100-200MB
+- 高速な推論
+- 精度はやや劣る
+
+### 第3候補: microsoft/phi-2 + 1bit
+- **2.7Bパラメータ** - 中規模
+- 推論メモリ: ~800MB-1GB
+- 高いコード生成性能
+- GitHub Actionsの7GB制限内で動作 (ギリギリ)
+
+### 第4候補: BitNet (Microsoft公式)
+- **本格的な1bitモデル**
+- 精度が高い
 - 実装が複雑
-
-### 第3候補: 1bit-LLaMA-1.5B
-- より軽量
-- メモリ使用量が少ない
-- コード生成性能はやや劣る
+- 大規模モデル (58B) はGitHub Actionsで動作しない
 
 ---
 
@@ -82,6 +90,7 @@
 ├── requirements.txt   # 依存関係
 ├── codegen.py         # コード生成スクリプト
 ├── config.yaml        # モデル設定
+├── .gitignore         # Git無視ファイル
 └── .github/
     └── workflows/
         └── codegen.yml  # GitHub Actionsワークフロー
@@ -101,10 +110,10 @@ pip install -r requirements.txt
 
 初回実行時に自動的にHuggingFace Hubからダウンロードされます。
 
-```bash
-# 手動ダウンロード（オプション）
-python -c "from transformers import AutoModelForCausalLM; AutoModelForCausalLM.from_pretrained('1bit-LLaMA/3B-1bit')"
-```
+**フォールバック機能**: モデルが見つからない場合、自動的に以下のモデルを試行します:
+- `TinyLlama/TinyLlama-1.1B` (デフォルト)
+- `Qwen/Qwen2-0.5B`
+- `microsoft/phi-2`
 
 ---
 
@@ -113,13 +122,16 @@ python -c "from transformers import AutoModelForCausalLM; AutoModelForCausalLM.f
 ### コード生成
 
 ```python
-from codegen import generate_code
+from codegen import BitLLMCodeGenerator
+
+# コード生成器を初期化
+generator = BitLLMCodeGenerator()
 
 # Python関数の生成
-code = generate_code(
+code = generator.generate_code(
     prompt="2つの数字を足すPython関数を作成して",
-    max_new_tokens=200,
-    temperature=0.7
+    language="python",
+    max_tokens=200
 )
 print(code)
 ```
@@ -136,6 +148,7 @@ print(code)
 2. **推論速度**: CPU上での推論はGPUより遅いです
 3. **モデル精度**: 1bit量子化により、若干の精度低下があります
 4. **ネットワーク**: 初回実行時はモデルダウンロードに時間がかかります
+5. **HuggingFace Hub認証**: プライベートモデルを使用する場合は、`huggingface-cli login`で認証してください
 
 ---
 
@@ -145,3 +158,4 @@ print(code)
 - [BiLLM: Binary Large Language Models](https://arxiv.org/abs/2403.09364)
 - [HuggingFace bitsandbytes](https://github.com/TimDettmers/bitsandbytes)
 - [GitHub Actions Documentation](https://docs.github.com/en/actions)
+- [TinyLlama on HuggingFace](https://huggingface.co/TinyLlama/TinyLlama-1.1B)

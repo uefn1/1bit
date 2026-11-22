@@ -57,29 +57,62 @@ class BitLLMCodeGenerator:
         
         model_config = self.config['model']
         
-        # トークナイザーの読み込み
-        print("Loading tokenizer...")
-        self.tokenizer = AutoTokenizer.from_pretrained(
+        # フォールバックモデルリスト (小規模なモデルから順に試行)
+        fallback_models = [
             model_config['huggingface_id'],
-            trust_remote_code=True
-        )
+            "TinyLlama/TinyLlama-1.1B",
+            "Qwen/Qwen2-0.5B",
+            "microsoft/phi-2",
+        ]
         
-        # モデルの読み込み (1bit量子化)
-        print("Loading model with 1bit quantization...")
-        self.model = AutoModelForCausalLM.from_pretrained(
-            model_config['huggingface_id'],
-            load_in_1bit=model_config['quantization']['load_in_1bit'],
-            device_map=model_config['device_map'],
-            torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-            trust_remote_code=True
-        )
+        loaded_model_id = None
+        
+        # モデルを読み込む (フォールバックあり)
+        for model_id in fallback_models:
+            try:
+                print(f"Trying to load model: {model_id}")
+                
+                # トークナイザーの読み込み
+                print(f"Loading tokenizer for {model_id}...")
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    model_id,
+                    trust_remote_code=True
+                )
+                
+                # モデルの読み込み (1bit量子化)
+                print(f"Loading model with 1bit quantization: {model_id}...")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    load_in_1bit=model_config['quantization']['load_in_1bit'],
+                    device_map=model_config['device_map'],
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    trust_remote_code=True
+                )
+                
+                loaded_model_id = model_id
+                break
+                
+            except Exception as e:
+                print(f"Failed to load {model_id}: {e}")
+                continue
+        
+        if loaded_model_id is None:
+            raise RuntimeError(
+                "All fallback models failed to load. "
+                "Please check your internet connection and HuggingFace Hub access. "
+                "You may need to run 'huggingface-cli login' to authenticate."
+            )
         
         # GPUが利用可能な場合はGPUに移動
         if torch.cuda.is_available():
             self.model = self.model.to('cuda')
         
-        print(f"Model loaded successfully: {model_config['name']}")
+        print(f"Model loaded successfully: {loaded_model_id}")
         print(f"Device: {model_config['device']}")
+        
+        # 実際にロードしたモデルIDを更新
+        self.config['model']['huggingface_id'] = loaded_model_id
+        self.config['model']['name'] = loaded_model_id.split('/')[-1] + "-1bit"
         
     def generate(
         self,
