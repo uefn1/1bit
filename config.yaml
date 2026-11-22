@@ -1,40 +1,33 @@
-# BitNet b1.58-2B-4T 設定 (bitnet.cppを使用)
+# BitNet b1.58-2B-4T 設定
+# デフォルトではHuggingFace Transformersを使用 (ビルド不要)
+# bitnet.cppを使用する場合はengine: "bitnet.cpp"に設定
 
 model:
   # 選定モデル
   name: "BitNet-b1.58-2B-4T"
   
   # HuggingFace HubのモデルID
-  # bitnet.cppではGGUFフォーマットのモデルを使用
-  # GGUFモデルはHuggingFace Hubからダウンロード
   huggingface_id: "microsoft/bitnet-b1.58-2B-4T"
   
-  # GGUFモデルのファイル名 (bitnet.cpp用)
-  gguf_model: "bitnet-b1.58-2B-4T.gguf"
-  
   # 量子化設定
-  # bitnet.cppではGGUFファイルに量子化情報が含まれています
   quantization:
     bits: 1
-    type: "i2_s"  # BitNetの量子化タイプ
+    load_in_1bit: true  # BitNetモデル専用の1bit量子化
+    load_in_4bit: false
+    load_in_8bit: false
     
   # 推論エンジン
-  engine: "bitnet.cpp"  # bitnet.cpp or transformers
+  # "transformers" (デフォルト) - Python, ビルド不要, 1bit量子化サポート
+  # "bitnet.cpp" - C++, 高速, GGUFフォーマット, ビルド必要
+  engine: "transformers"
   
-  # bitnet.cppの設定
-  bitnet_cpp:
-    use_gguf: true
-    model_path: "models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf"
-    threads: 2
-    ctx_size: 2048
-    
   # デバイス設定
-  device: "cpu"  # bitnet.cppはCPU専用
+  device: "auto"  # auto, cpu, cuda
   device_map: "auto"
 
 # 推論設定
 inference:
-  max_new_tokens: 128
+  max_new_tokens: 200
   temperature: 0.7
   top_k: 50
   top_p: 0.95
@@ -67,6 +60,13 @@ codegen:
 
     コード:
 
+# bitnet.cpp設定 (engine: "bitnet.cpp"を使用する場合)
+bitnet_cpp:
+  use_gguf: true
+  model_path: "bitnet/models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf"
+  threads: 2
+  ctx_size: 2048
+
 # GitHub Actions設定
 github_actions:
   # 使用するランナー
@@ -79,7 +79,7 @@ github_actions:
   memory_limit: "7GB"
   
   # タイムアウト
-  timeout_minutes: 60
+  timeout_minutes: 30
 
 # フォールバックモデル (BitNetが見つからない場合)
 fallback_models:

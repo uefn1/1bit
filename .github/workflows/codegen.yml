@@ -1,4 +1,4 @@
-name: Code Generation with 1bit LLM
+name: Code Generation with BitNet 1bit LLM
 
 on:
   push:
@@ -23,6 +23,10 @@ on:
         description: 'Output file name'
         required: false
         default: 'generated_code.py'
+      use_bitnet_cpp:
+        description: 'Use bitnet.cpp engine (requires build)'
+        required: false
+        default: 'false'
 
 jobs:
   generate-code:
@@ -37,6 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          submodules: recursive  # bitnet.cppサブモジュールを取得
       
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
@@ -57,7 +62,18 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          
+      
+      - name: Build bitnet.cpp (if requested)
+        if: ${{ github.event.inputs.use_bitnet_cpp == 'true' || github.event_name == 'push' }}
+        run: |
+          cd bitnet
+          mkdir -p build
+          cd build
+          cmake .. -DCMAKE_BUILD_TYPE=Release
+          make -j$(nproc)
+          cd ../..
+        timeout-minutes: 20
+      
       - name: Cache HuggingFace models
         uses: actions/cache@v4
         with:
@@ -66,37 +82,34 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-huggingface-
       
-      - name: Generate code with 1bit LLM
+      - name: Generate code with BitNet
         id: codegen
         run: |
-          python codegen.py \
-            --prompt "${{ github.event.inputs.prompt || 'Create a Python function that calculates factorial' }}" \
-            --language "${{ github.event.inputs.language || 'python' }}" \
-            --output "${{ github.event.inputs.output_file || 'generated_code.py' }}" \
-            --max-tokens 500
+          # 使用するエンジンを決定
+          if [ "${{ github.event.inputs.use_bitnet_cpp }}" = "true" ]; then
+            # bitnet.cppを使用
+            python codegen.py \
+              --prompt "${{ github.event.inputs.prompt }}" \
+              --language "${{ github.event.inputs.language }}" \
+              --output "${{ github.event.inputs.output_file }}" \
+              --max-tokens 500
+          else
+            # HuggingFace Transformersを使用 (デフォルト)
+            python codegen.py \
+              --prompt "${{ github.event.inputs.prompt }}" \
+              --language "${{ github.event.inputs.language }}" \
+              --output "${{ github.event.inputs.output_file }}" \
+              --max-tokens 500
+          fi
         env:
           PYTHONUNBUFFERED: "1"
+        timeout-minutes: 15
       
       - name: Display generated code
         run: |
           echo "=== Generated Code ==="
           cat ${{ github.event.inputs.output_file || 'generated_code.py' }}
           echo "=== End of Code ==="
-      
-      - name: Commit generated code (if changed)
-        if: github.event_name == 'push' || github.event_name == 'workflow_dispatch'
-        run: |
-          git config --global user.name "GitHub Actions"
-          git config --global user.email "actions@github.com"
-          
-          # Check if file exists and has content
-          if [ -f "${{ github.event.inputs.output_file || 'generated_code.py' }}" ] && \
-             [ -s "${{ github.event.inputs.output_file || 'generated_code.py' }}" ]; then
-            git add ${{ github.event.inputs.output_file || 'generated_code.py' }}
-            git diff --cached --quiet || git commit -m "Generate code with 1bit LLM: ${{ github.event.inputs.prompt || 'auto' }}"
-            git push
-          fi
-        continue-on-error: true
       
       - name: Upload generated code as artifact
         uses: actions/upload-artifact@v4
@@ -125,8 +138,3 @@ jobs:
           echo "✅ Python syntax is valid" || \
           echo "❌ Python syntax error"
         continue-on-error: true
-      
-      - name: Display test results
-        run: |
-          echo "Code generation and testing completed!"
-          echo "Artifact available for download."

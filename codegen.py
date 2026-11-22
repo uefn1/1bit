@@ -1,22 +1,47 @@
 #!/usr/bin/env python3
 """
-BitNet b1.58-2B-4T コード生成スクリプト (bitnet.cppを使用)
+BitNet b1.58-2B-4T コード生成スクリプト
 
-GitHub Actionsで動作するBitNet 1bit量子化LLMを使用したコード生成
-bitnet.cpp (C++推論エンジン) を使用します
+HuggingFace Transformers (1bit量子化) または bitnet.cpp (C++推論エンジン) を使用
 """
 
 import os
 import sys
 import subprocess
-import tempfile
 import yaml
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
+# HuggingFace Transformersを使用するかどうか
+USE_TRANSFORMERS = True
+
+try:
+    import torch
+    from transformers import (
+        AutoModelForCausalLM,
+        AutoTokenizer,
+        GenerationConfig,
+        StoppingCriteria,
+        StoppingCriteriaList
+    )
+    HAS_TRANSFORMERS = True
+except ImportError:
+    HAS_TRANSFORMERS = False
+    USE_TRANSFORMERS = False
+
+
+class CodeStoppingCriteria(StoppingCriteria):
+    """コード生成用のカスタム停止基準"""
+    
+    def __init__(self, stop_tokens: List[str]):
+        self.stop_tokens = stop_tokens
+        
+    def __call__(self, input_ids, scores, **kwargs) -> bool:
+        return False
+
 
 class BitNetCodeGenerator:
-    """BitNet b1.58-2B-4Tを使用したコード生成器 (bitnet.cpp版)"""
+    """BitNet b1.58-2B-4Tを使用したコード生成器"""
     
     def __init__(self, config_path: str = "config.yaml"):
         """
@@ -26,18 +51,141 @@ class BitNetCodeGenerator:
             config_path: 設定ファイルのパス
         """
         self.config = self._load_config(config_path)
-        self._setup_bitnet_cpp()
+        self.model = None
+        self.tokenizer = None
+        self.engine = None
+        
+        # 推論エンジンを決定
+        engine = self.config['model'].get('engine', 'transformers')
+        
+        if engine == 'transformers' or not self._can_use_bitnet_cpp():
+            self._load_transformers_model()
+            self.engine = 'transformers'
+        else:
+            self._load_bitnet_cpp_model()
+            self.engine = 'bitnet.cpp'
+        
+        print(f"Using engine: {self.engine}")
         
     def _load_config(self, config_path: str) -> Dict[str, Any]:
         """設定ファイルを読み込む"""
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     
-    def _setup_bitnet_cpp(self):
-        """bitnet.cppの環境をセットアップ"""
-        print("Setting up bitnet.cpp environment...")
+    def _can_use_bitnet_cpp(self) -> bool:
+        """bitnet.cppが使用可能かを確認"""
+        bitnet_dir = Path(__file__).parent / "bitnet"
+        if not bitnet_dir.exists():
+            return False
         
-        # bitnet.cppディレクトリを確認
+        # llama-cliが存在するかを確認
+        if os.name == "nt":
+            llama_cli = bitnet_dir / "build" / "bin" / "Release" / "llama-cli.exe"
+            if not llama_cli.exists():
+                llama_cli = bitnet_dir / "build" / "bin" / "llama-cli"
+        else:
+            llama_cli = bitnet_dir / "build" / "bin" / "llama-cli"
+        
+        return llama_cli.exists()
+    
+    def _is_bitnet_model(self, model_id: str) -> bool:
+        """BitNetモデルかどうかを判定"""
+        return "bitnet" in model_id.lower()
+    
+    def _load_transformers_model(self):
+        """HuggingFace Transformersを使用してモデルを読み込む"""
+        if not HAS_TRANSFORMERS:
+            raise ImportError(
+                "transformers is not installed. "
+                "Please install it: pip install transformers torch bitsandbytes"
+            )
+        
+        print("Loading BitNet model with HuggingFace Transformers...")
+        
+        model_config = self.config['model']
+        quant_config = model_config['quantization']
+        
+        # フォールバックモデルリスト
+        fallback_models = [
+            model_config['huggingface_id'],
+            "microsoft/bitnet-b1.58-2B-4T",
+            "microsoft/bitnet-b1.58-3B",
+            "microsoft/bitnet-b1.58-1.5B",
+        ]
+        
+        loaded_model_id = None
+        
+        # モデルを読み込む (フォールバックあり)
+        for model_id in fallback_models:
+            try:
+                print(f"Trying to load model: {model_id}")
+                
+                # トークナイザーの読み込み
+                print(f"Loading tokenizer for {model_id}...")
+                self.tokenizer = AutoTokenizer.from_pretrained(
+                    model_id,
+                    trust_remote_code=True
+                )
+                
+                # 量子化設定
+                quantization_kwargs = {}
+                
+                # BitNetモデルの場合は1bit量子化
+                if self._is_bitnet_model(model_id) and quant_config.get('load_in_1bit', False):
+                    print(f"Loading {model_id} with 1bit quantization...")
+                    quantization_kwargs = {'load_in_1bit': True}
+                elif quant_config.get('load_in_4bit', False):
+                    print(f"Loading {model_id} with 4bit quantization...")
+                    quantization_kwargs = {
+                        'load_in_4bit': True,
+                        'bnb_4bit_compute_dtype': torch.float16,
+                        'bnb_4bit_quant_type': 'nf4',
+                        'bnb_4bit_use_double_quant': True,
+                    }
+                elif quant_config.get('load_in_8bit', False):
+                    print(f"Loading {model_id} with 8bit quantization...")
+                    quantization_kwargs = {'load_in_8bit': True}
+                
+                # モデルの読み込み
+                print(f"Loading model: {model_id}...")
+                self.model = AutoModelForCausalLM.from_pretrained(
+                    model_id,
+                    device_map=model_config['device_map'],
+                    torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                    trust_remote_code=True,
+                    **quantization_kwargs
+                )
+                
+                loaded_model_id = model_id
+                break
+                
+            except Exception as e:
+                print(f"Failed to load {model_id}: {e}")
+                continue
+        
+        if loaded_model_id is None:
+            raise RuntimeError(
+                "All fallback models failed to load. "
+                "Please check your internet connection and HuggingFace Hub access. "
+                "You may need to run 'huggingface-cli login' to authenticate. "
+                f"Tried models: {fallback_models}"
+            )
+        
+        # GPUが利用可能な場合はGPUに移動
+        if torch.cuda.is_available():
+            self.model = self.model.to('cuda')
+        
+        print(f"Model loaded successfully: {loaded_model_id}")
+        print(f"Device: {model_config['device']}")
+        
+        # 実際にロードしたモデルIDを更新
+        self.config['model']['huggingface_id'] = loaded_model_id
+        self.config['model']['name'] = loaded_model_id.split('/')[-1]
+        
+    def _load_bitnet_cpp_model(self):
+        """bitnet.cppを使用してモデルを読み込む"""
+        print("Loading BitNet model with bitnet.cpp...")
+        
         bitnet_dir = Path(__file__).parent / "bitnet"
         if not bitnet_dir.exists():
             raise FileNotFoundError(
@@ -49,70 +197,40 @@ class BitNetCodeGenerator:
         models_dir = bitnet_dir / "models"
         models_dir.mkdir(exist_ok=True)
         
-        # GGUFモデルをダウンロード (初回実行時)
-        self._download_gguf_model()
-        
-        print("bitnet.cpp environment is ready")
-    
-    def _download_gguf_model(self):
-        """GGUFモデルをダウンロード"""
-        from huggingface_hub import snapshot_download
-        import warnings
-        
+        # GGUFモデルを確認
         model_config = self.config['model']
         bitnet_config = self.config.get('bitnet_cpp', {})
+        model_path = bitnet_config.get('model_path')
         
-        # モデルが既に存在する場合はスキップ
-        model_path = bitnet_config.get('model_path', "")
-        if model_path and os.path.exists(model_path):
-            print(f"GGUF model already exists at {model_path}")
-            return
+        if model_path and not os.path.exists(model_path):
+            print(f"GGUF model not found at {model_path}")
+            print("Please download the GGUF model and place it in the correct location")
+            model_path = None
         
-        print(f"Downloading GGUF model: {model_config['huggingface_id']}")
+        # llama-cliの存在を確認
+        if os.name == "nt":
+            llama_cli = bitnet_dir / "build" / "bin" / "Release" / "llama-cli.exe"
+            if not llama_cli.exists():
+                llama_cli = bitnet_dir / "build" / "bin" / "llama-cli"
+        else:
+            llama_cli = bitnet_dir / "build" / "bin" / "llama-cli"
         
-        try:
-            # HuggingFace Hubからモデルをダウンロード
-            with warnings.catch_warnings():
-                warnings.simplefilter("ignore")
-                
-                # bitnet.cpp用のGGUFモデルをダウンロード
-                # 注: 実際のGGUFモデルはHuggingFace Hubにアップロードされる予定
-                local_dir = Path(__file__).parent / "bitnet" / "models" / model_config['name']
-                local_dir.mkdir(parents=True, exist_ok=True)
-                
-                # GGUFファイルを探す
-                gguf_file = local_dir / model_config.get('gguf_model', "ggml-model-i2_s.gguf")
-                
-                if not gguf_file.exists():
-                    # HuggingFace Hubからダウンロードを試みる
-                    try:
-                        snapshot_download(
-                            repo_id=model_config['huggingface_id'],
-                            local_dir=str(local_dir),
-                            local_dir_use_symlinks=False,
-                            ignore_patterns=["*.msgpack", "*.h5", "*.tflite", "*.safetensors", "*.bin"]
-                        )
-                        print(f"Model downloaded to {local_dir}")
-                    except Exception as e:
-                        print(f"Failed to download from HuggingFace Hub: {e}")
-                        print("Please manually download the GGUF model and place it in:")
-                        print(f"  {local_dir / model_config.get('gguf_model', 'ggml-model-i2_s.gguf')}")
-                        print("\nYou can find GGUF models at:")
-                        print("  https://huggingface.co/models?search=bitnet")
-                        
-                # GGUFファイルの存在を確認
-                if gguf_file.exists():
-                    print(f"GGUF model found: {gguf_file}")
-                    # configを更新
-                    self.config['bitnet_cpp']['model_path'] = str(gguf_file)
-                else:
-                    print(f"Warning: GGUF model not found at {gguf_file}")
-                    print("bitnet.cpp will use the default model path")
-                    
-        except ImportError:
-            print("huggingface_hub is not installed. Skipping download.")
-            print("Please install it: pip install huggingface-hub")
-    
+        if not llama_cli.exists():
+            raise FileNotFoundError(
+                f"llama-cli not found at {llama_cli}. "
+                "Please build bitnet.cpp first: cd bitnet && mkdir build && cd build && cmake .. && make"
+            )
+        
+        self.llama_cli_path = str(llama_cli)
+        self.model_path = model_path or bitnet_config.get('model_path', 
+            "bitnet/models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf")
+        self.threads = bitnet_config.get('threads', 2)
+        self.ctx_size = bitnet_config.get('ctx_size', 2048)
+        
+        print(f"bitnet.cpp loaded successfully")
+        print(f"llama-cli: {self.llama_cli_path}")
+        print(f"Model path: {self.model_path}")
+        
     def _run_bitnet_inference(self, prompt: str, max_tokens: int = 128, temperature: float = 0.7) -> str:
         """
         bitnet.cppを使用して推論を実行
@@ -125,106 +243,18 @@ class BitNetCodeGenerator:
         Returns:
             生成されたテキスト
         """
-        bitnet_dir = Path(__file__).parent / "bitnet"
-        bitnet_config = self.config.get('bitnet_cpp', {})
-        
-        # model_pathを取得
-        model_path = bitnet_config.get('model_path', "models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf")
-        
-        # bitnet.cppのrun_inference.pyを呼び出す
-        # あるいは、llama-cliを直接呼び出す
-        
-        # 方法1: run_inference.pyを使用
-        run_inference_path = bitnet_dir / "run_inference.py"
-        
-        if run_inference_path.exists():
-            # run_inference.pyを呼び出す
-            import subprocess
-            
-            command = [
-                sys.executable, str(run_inference_path),
-                "-m", str(model_path),
-                "-p", prompt,
-                "-n", str(max_tokens),
-                "--temp", str(temperature),
-                "-t", str(bitnet_config.get('threads', 2)),
-                "-c", str(bitnet_config.get('ctx_size', 2048)),
-                "-ngl", "0"  # GPUを使用しない
-            ]
-            
-            print(f"Running command: {' '.join(command)}")
-            
-            try:
-                result = subprocess.run(
-                    command,
-                    capture_output=True,
-                    text=True,
-                    timeout=300
-                )
-                
-                if result.returncode == 0:
-                    # 出力から生成されたテキストを抽出
-                    output = result.stdout
-                    # プロンプトを除去
-                    if prompt in output:
-                        output = output[len(prompt):]
-                    return output.strip()
-                else:
-                    print(f"Error: {result.stderr}")
-                    raise RuntimeError(f"Failed to run bitnet.cpp inference: {result.stderr}")
-                    
-            except subprocess.TimeoutExpired:
-                raise TimeoutError("bitnet.cpp inference timed out")
-            except FileNotFoundError:
-                print("run_inference.py not found. Trying to use llama-cli directly...")
-                # 方法2: llama-cliを直接呼び出す
-                return self._run_llama_cli(prompt, max_tokens, temperature)
-        else:
-            # 方法2: llama-cliを直接呼び出す
-            return self._run_llama_cli(prompt, max_tokens, temperature)
-    
-    def _run_llama_cli(self, prompt: str, max_tokens: int = 128, temperature: float = 0.7) -> str:
-        """
-        llama-cliを直接呼び出して推論を実行
-        
-        Args:
-            prompt: プロンプト
-            max_tokens: 最大生成トークン数
-            temperature: 温度
-            
-        Returns:
-            生成されたテキスト
-        """
-        bitnet_dir = Path(__file__).parent / "bitnet"
-        bitnet_config = self.config.get('bitnet_cpp', {})
-        model_path = bitnet_config.get('model_path', "models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf")
-        
-        # llama-cliのパス
-        if os.name == "nt":  # Windows
-            llama_cli_path = bitnet_dir / "build" / "bin" / "Release" / "llama-cli.exe"
-            if not llama_cli_path.exists():
-                llama_cli_path = bitnet_dir / "build" / "bin" / "llama-cli"
-        else:  # Linux/Mac
-            llama_cli_path = bitnet_dir / "build" / "bin" / "llama-cli"
-        
-        if not llama_cli_path.exists():
-            raise FileNotFoundError(
-                f"llama-cli not found at {llama_cli_path}. "
-                "Please build bitnet.cpp first: cd bitnet && mkdir build && cd build && cmake .. && make"
-            )
-        
         command = [
-            str(llama_cli_path),
-            "-m", str(model_path),
+            self.llama_cli_path,
+            "-m", str(self.model_path),
             "-p", prompt,
             "-n", str(max_tokens),
             "--temp", str(temperature),
-            "-t", str(bitnet_config.get('threads', 2)),
-            "-c", str(bitnet_config.get('ctx_size', 2048)),
+            "-t", str(self.threads),
+            "-c", str(self.ctx_size),
             "-ngl", "0"  # GPUを使用しない
         ]
         
-        print(f"Running llama-cli: {' '.join(command)}")
+        print(f"Running: {' '.join(command)}")
         
         try:
             result = subprocess.run(
@@ -274,12 +304,65 @@ class BitNetCodeGenerator:
         max_new_tokens = max_new_tokens or inference_config['max_new_tokens']
         temperature = temperature or inference_config['temperature']
         
-        # bitnet.cppを使用して推論
-        return self._run_bitnet_inference(
-            prompt=prompt,
-            max_tokens=max_new_tokens,
-            temperature=temperature
+        # エンジンに応じて推論を実行
+        if self.engine == 'transformers':
+            return self._generate_with_transformers(
+                prompt=prompt,
+                max_new_tokens=max_new_tokens,
+                temperature=temperature,
+                stop_tokens=stop_tokens
+            )
+        else:  # bitnet.cpp
+            return self._run_bitnet_inference(
+                prompt=prompt,
+                max_tokens=max_new_tokens,
+                temperature=temperature
+            )
+    
+    def _generate_with_transformers(
+        self,
+        prompt: str,
+        max_new_tokens: int,
+        temperature: float,
+        stop_tokens: Optional[List[str]] = None
+    ) -> str:
+        """HuggingFace Transformersを使用してテキストを生成"""
+        # 生成設定
+        generation_config = GenerationConfig(
+            max_new_tokens=max_new_tokens,
+            temperature=temperature,
+            do_sample=True,
+            repetition_penalty=self.config['inference'].get('repetition_penalty', 1.1)
         )
+        
+        # 止める基準
+        stopping_criteria = StoppingCriteriaList()
+        if stop_tokens:
+            stopping_criteria.append(CodeStoppingCriteria(stop_tokens))
+        
+        # トークナイズ
+        inputs = self.tokenizer(prompt, return_tensors="pt")
+        
+        # デバイスに移動
+        if torch.cuda.is_available():
+            inputs = {k: v.to('cuda') for k, v in inputs.items()}
+        
+        # 生成
+        with torch.no_grad():
+            outputs = self.model.generate(
+                **inputs,
+                generation_config=generation_config,
+                stopping_criteria=stopping_criteria
+            )
+        
+        # デコード
+        generated_text = self.tokenizer.decode(outputs[0], skip_special_tokens=True)
+        
+        # プロンプトを除去
+        if prompt in generated_text:
+            generated_text = generated_text[len(prompt):]
+        
+        return generated_text.strip()
     
     def generate_code(
         self,
@@ -340,24 +423,29 @@ class BitNetCodeGenerator:
     def get_model_info(self) -> Dict[str, Any]:
         """モデル情報を取得"""
         model_config = self.config['model']
-        bitnet_config = self.config.get('bitnet_cpp', {})
         
-        return {
+        info = {
             "name": model_config['name'],
             "huggingface_id": model_config['huggingface_id'],
-            "gguf_model": model_config.get('gguf_model'),
             "quantization": model_config['quantization'],
-            "engine": model_config.get('engine', 'bitnet.cpp'),
+            "engine": self.engine,
             "device": model_config['device'],
-            "model_path": bitnet_config.get('model_path'),
         }
+        
+        if self.engine == 'bitnet.cpp':
+            info['llama_cli_path'] = self.llama_cli_path
+            info['model_path'] = self.model_path
+        
+        return info
 
 
 def main():
     """メイン関数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="BitNet b1.58-2B-4T Code Generator (bitnet.cpp)")
+    parser = argparse.ArgumentParser(
+        description="BitNet b1.58-2B-4T Code Generator (Transformers or bitnet.cpp)"
+    )
     parser.add_argument("--prompt", type=str, default="Hello, world! in Python", 
                        help="Code generation prompt")
     parser.add_argument("--language", type=str, default="python",
@@ -369,7 +457,7 @@ def main():
     args = parser.parse_args()
     
     # コード生成器を初期化
-    print("Initializing BitNet b1.58-2B-4T Code Generator with bitnet.cpp...")
+    print("Initializing BitNet b1.58-2B-4T Code Generator...")
     
     try:
         generator = BitNetCodeGenerator()
@@ -380,7 +468,7 @@ def main():
         print(f"HuggingFace ID: {model_info['huggingface_id']}")
         print(f"Engine: {model_info['engine']}")
         print(f"Quantization: {model_info['quantization'].get('bits', '1')}bit")
-        print(f"Model Path: {model_info.get('model_path', 'Not set')}")
+        print(f"Device: {model_info['device']}")
         print("-" * 50)
         
         print(f"Generating {args.language} code for: {args.prompt}")
@@ -404,10 +492,14 @@ def main():
             
     except Exception as e:
         print(f"\n❌ Error: {e}")
-        print("\nTo use bitnet.cpp, you need to:")
-        print("1. Clone the BitNet repository: git clone https://github.com/microsoft/BitNet.git bitnet")
-        print("2. Build bitnet.cpp: cd bitnet && mkdir build && cd build && cmake .. && make")
-        print("3. Download GGUF model: Place the GGUF file in bitnet/models/")
+        print("\nTo use this code generator, you have two options:")
+        print("\n🔹 Option 1: Use HuggingFace Transformers (Recommended)")
+        print("   pip install transformers torch bitsandbytes")
+        print("   # No build required, works out of the box")
+        print("\n🔹 Option 2: Use bitnet.cpp (C++ engine)")
+        print("   1. Clone: git clone https://github.com/microsoft/BitNet.git bitnet")
+        print("   2. Build: cd bitnet && mkdir build && cd build && cmake .. && make")
+        print("   3. Download GGUF model and place it in bitnet/models/")
         print("\nFor more information, see: https://github.com/microsoft/BitNet")
         sys.exit(1)
 
