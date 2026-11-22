@@ -9,6 +9,11 @@ model:
   # HuggingFace HubのモデルID
   huggingface_id: "microsoft/bitnet-b1.58-2B-4T"
   
+  # Custom model options (optional)
+  # Use either model_url or local_model_path, not both
+  model_url: null  # URL to custom model.safetensors (e.g., GitHub releases)
+  local_model_path: null  # Local directory path containing model files
+  
   # 量子化設定
   quantization:
     bits: 1

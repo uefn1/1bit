@@ -9,6 +9,9 @@ import os
 import sys
 import subprocess
 import yaml
+import tempfile
+import shutil
+import urllib.request
 from pathlib import Path
 from typing import Optional, List, Dict, Any
 
@@ -91,6 +94,67 @@ class BitNetCodeGenerator:
     def _is_bitnet_model(self, model_id: str) -> bool:
         """BitNetモデルかどうかを判定"""
         return "bitnet" in model_id.lower()
+
+    def _download_model_from_url(self, url: str, target_dir: Path) -> Path:
+        """Download model.safetensors from URL and return the directory path"""
+        target_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Download model.safetensors
+        safetensors_path = target_dir / "model.safetensors"
+        print(f"Downloading model from {url}...")
+        try:
+            urllib.request.urlretrieve(url, safetensors_path)
+            print(f"Model downloaded to {safetensors_path}")
+        except Exception as e:
+            raise RuntimeError(f"Failed to download model from {url}: {e}")
+        
+        # We need config.json for BitNet
+        # Try to download from the same GitHub release or use default
+        config_url = url.replace("model.safetensors", "config.json")
+        config_path = target_dir / "config.json"
+        
+        try:
+            urllib.request.urlretrieve(config_url, config_path)
+            print(f"Config downloaded to {config_path}")
+        except Exception as e:
+            print(f"Could not download config from {config_url}, using default BitNet config")
+            # Create a minimal BitNet config
+            import json
+            bitnet_config = {
+                "architectures": ["BitNetForCausalLM"],
+                "vocab_size": 128256,
+                "hidden_size": 2560,
+                "intermediate_size": 6912,
+                "num_hidden_layers": 30,
+                "num_attention_heads": 20,
+                "num_key_value_heads": 5,
+                "hidden_act": "relu2",
+                "max_position_embeddings": 2048,
+                "initializer_range": 0.02,
+                "rms_norm_eps": 1e-05,
+                "use_cache": True,
+                "bos_token_id": 128000,
+                "eos_token_id": 128001,
+                "attention_bias": False,
+                "attention_dropout": 0.0
+            }
+            with open(config_path, "w") as f:
+                json.dump(bitnet_config, f)
+            print(f"Default config created at {config_path}")
+        
+        # Download tokenizer files from the official model
+        # Use microsoft/bitnet-b1.58-2B-4T as reference
+        hf_model_id = "microsoft/bitnet-b1.58-2B-4T"
+        
+        try:
+            from transformers import AutoTokenizer
+            tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
+            tokenizer.save_pretrained(target_dir)
+            print(f"Tokenizer files saved from {hf_model_id}")
+        except Exception as e:
+            print(f"Warning: Could not download tokenizer files: {e}")
+        
+        return target_dir
     
     def _load_transformers_model(self):
         """HuggingFace Transformersを使用してモデルを読み込む"""
@@ -105,13 +169,28 @@ class BitNetCodeGenerator:
         model_config = self.config['model']
         quant_config = model_config['quantization']
         
-        # フォールバックモデルリスト
-        fallback_models = [
-            model_config['huggingface_id'],
-            "microsoft/bitnet-b1.58-2B-4T",
-            "microsoft/bitnet-b1.58-2B-4T-bf16",
-        ]
+        # Check if custom model URL is provided
+        custom_model_url = model_config.get("model_url")
+        custom_local_path = model_config.get("local_model_path")
         
+        if custom_model_url:
+            # Download from custom URL
+            cache_dir = Path.home() / ".cache" / "bitnet_models"
+            model_dir = cache_dir / "custom_model"
+            print(f"Downloading model from custom URL: {custom_model_url}")
+            model_path = self._download_model_from_url(custom_model_url, model_dir)
+            fallback_models = [str(model_path)]
+        elif custom_local_path and os.path.exists(custom_local_path):
+            # Use local path
+            print(f"Using local model from: {custom_local_path}")
+            fallback_models = [custom_local_path]
+        else:
+            # Use HuggingFace Hub fallback models
+            fallback_models = [
+                model_config["huggingface_id"],
+                "microsoft/bitnet-b1.58-2B-4T",
+                "microsoft/bitnet-b1.58-2B-4T-bf16",
+            ]
         loaded_model_id = None
         
         # モデルを読み込む (フォールバックあり)
@@ -458,7 +537,25 @@ def main():
     print("Initializing BitNet b1.58-2B-4T Code Generator...")
     
     try:
-        generator = BitNetCodeGenerator()
+        # Handle custom model paths from CLI
+        if args.model_url or args.local_model:
+            # Update config with CLI arguments
+            import yaml
+            with open("config.yaml", "r", encoding="utf-8") as cf:
+                config = yaml.safe_load(cf)
+            if args.model_url:
+                config["model"]["model_url"] = args.model_url
+            if args.local_model:
+                config["model"]["local_model_path"] = args.local_model
+            # Save updated config to temp file
+            import tempfile
+            with tempfile.NamedTemporaryFile(mode="w", suffix=".yaml", delete=False) as tf:
+                yaml.dump(config, tf)
+                temp_config = tf.name
+            generator = BitNetCodeGenerator(config_path=temp_config)
+            # Clean up temp file
+            import os
+            os.unlink(temp_config)
         
         # モデル情報を表示
         model_info = generator.get_model_info()
