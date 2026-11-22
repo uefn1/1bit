@@ -109,8 +109,7 @@ class BitNetCodeGenerator:
         fallback_models = [
             model_config['huggingface_id'],
             "microsoft/bitnet-b1.58-2B-4T",
-            "microsoft/bitnet-b1.58-3B",
-            "microsoft/bitnet-b1.58-1.5B",
+            "microsoft/bitnet-b1.58-2B-4T-bf16",
         ]
         
         loaded_model_id = None
@@ -127,13 +126,12 @@ class BitNetCodeGenerator:
                     trust_remote_code=True
                 )
                 
-                # 量子化設定
+                # Quantization settings
                 quantization_kwargs = {}
                 
-                # BitNetモデルの場合は1bit量子化
-                if self._is_bitnet_model(model_id) and quant_config.get('load_in_1bit', False):
-                    print(f"Loading {model_id} with 1bit quantization...")
-                    quantization_kwargs = {'load_in_1bit': True}
+                # BitNet models are already pre-quantized (1.58-bit), no quantization kwargs needed
+                if self._is_bitnet_model(model_id):
+                    pass  # BitNet models use their own quantization
                 elif quant_config.get('load_in_4bit', False):
                     print(f"Loading {model_id} with 4bit quantization...")
                     quantization_kwargs = {

@@ -84,5 +84,4 @@ github_actions:
 # フォールバックモデル (BitNetが見つからない場合)
 fallback_models:
   - "microsoft/bitnet-b1.58-2B-4T"
-  - "microsoft/bitnet-b1.58-3B"
-  - "microsoft/bitnet-b1.58-1.5B"
+  - "microsoft/bitnet-b1.58-2B-4T-bf16"
