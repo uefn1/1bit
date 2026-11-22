@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-1bit LLM コード生成スクリプト
+4bit LLM コード生成スクリプト
 
-GitHub Actionsで動作する1bit量子化LLMを使用したコード生成
+GitHub Actionsで動作する4bit量子化LLMを使用したコード生成
+注: 1bit量子化はBitNet専用です。一般的なモデルでは4bit量子化を使用します。
 """
 
 import torch
@@ -25,14 +26,11 @@ class CodeStoppingCriteria(StoppingCriteria):
         self.stop_tokens = stop_tokens
         
     def __call__(self, input_ids: torch.LongTensor, scores: torch.FloatTensor, **kwargs) -> bool:
-        # 最後の生成されたトークンを取得
-        last_token = input_ids[0][-1]
-        last_token_str = self.stop_tokens[0]  # 簡易実装
-        return False  # 今後拡張
+        return False
 
 
 class BitLLMCodeGenerator:
-    """1bit LLMを使用したコード生成器"""
+    """4bit/8bit LLMを使用したコード生成器"""
     
     def __init__(self, config_path: str = "config.yaml"):
         """
@@ -53,16 +51,21 @@ class BitLLMCodeGenerator:
     
     def _load_model(self):
         """モデルとトークナイザーを読み込む"""
-        print("Loading 1bit LLM model...")
+        print("Loading 4bit LLM model...")
         
         model_config = self.config['model']
+        quant_config = model_config['quantization']
         
         # フォールバックモデルリスト (小規模なモデルから順に試行)
+        # 4bit量子化を使用
         fallback_models = [
             model_config['huggingface_id'],
             "TinyLlama/TinyLlama-1.1B",
-            "Qwen/Qwen2-0.5B",
+            "Qwen/Qwen2-0.5B-Instruct",
+            "Qwen/Qwen2-1.5B-Instruct",
             "microsoft/phi-2",
+            "google/gemma-2b",
+            "google/gemma-7b",
         ]
         
         loaded_model_id = None
@@ -79,14 +82,30 @@ class BitLLMCodeGenerator:
                     trust_remote_code=True
                 )
                 
-                # モデルの読み込み (1bit量子化)
-                print(f"Loading model with 1bit quantization: {model_id}...")
+                # 量子化設定を決定
+                # 4bit > 8bit > FP16の順に試行
+                quantization_kwargs = {}
+                
+                if quant_config.get('load_in_4bit', False):
+                    print(f"Trying 4bit quantization for {model_id}...")
+                    quantization_kwargs = {
+                        'load_in_4bit': True,
+                        'bnb_4bit_compute_dtype': torch.float16,
+                        'bnb_4bit_quant_type': 'nf4',
+                        'bnb_4bit_use_double_quant': True,
+                    }
+                elif quant_config.get('load_in_8bit', False):
+                    print(f"Trying 8bit quantization for {model_id}...")
+                    quantization_kwargs = {'load_in_8bit': True}
+                
+                # モデルの読み込み
+                print(f"Loading model: {model_id}...")
                 self.model = AutoModelForCausalLM.from_pretrained(
                     model_id,
-                    load_in_1bit=model_config['quantization']['load_in_1bit'],
                     device_map=model_config['device_map'],
                     torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-                    trust_remote_code=True
+                    trust_remote_code=True,
+                    **quantization_kwargs
                 )
                 
                 loaded_model_id = model_id
@@ -97,10 +116,32 @@ class BitLLMCodeGenerator:
                 continue
         
         if loaded_model_id is None:
+            # 量子化なしで試行 (FP16/INT8)
+            for model_id in fallback_models:
+                try:
+                    print(f"Trying to load {model_id} without quantization...")
+                    self.tokenizer = AutoTokenizer.from_pretrained(
+                        model_id,
+                        trust_remote_code=True
+                    )
+                    self.model = AutoModelForCausalLM.from_pretrained(
+                        model_id,
+                        device_map=model_config['device_map'],
+                        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
+                        trust_remote_code=True
+                    )
+                    loaded_model_id = model_id
+                    break
+                except Exception as e:
+                    print(f"Failed to load {model_id} without quantization: {e}")
+                    continue
+        
+        if loaded_model_id is None:
             raise RuntimeError(
                 "All fallback models failed to load. "
                 "Please check your internet connection and HuggingFace Hub access. "
-                "You may need to run 'huggingface-cli login' to authenticate."
+                "You may need to run 'huggingface-cli login' to authenticate. "
+                "Available models: TinyLlama-1.1B, Qwen2-0.5B, phi-2, gemma-2b"
             )
         
         # GPUが利用可能な場合はGPUに移動
@@ -112,7 +153,7 @@ class BitLLMCodeGenerator:
         
         # 実際にロードしたモデルIDを更新
         self.config['model']['huggingface_id'] = loaded_model_id
-        self.config['model']['name'] = loaded_model_id.split('/')[-1] + "-1bit"
+        self.config['model']['name'] = loaded_model_id.split('/')[-1]
         
     def generate(
         self,
@@ -247,7 +288,6 @@ class BitLLMCodeGenerator:
             "huggingface_id": self.config['model']['huggingface_id'],
             "quantization": self.config['model']['quantization'],
             "device": self.config['model']['device'],
-            "parameters": "3B"  # 3Bパラメータ
         }
 
 
@@ -255,7 +295,7 @@ def main():
     """メイン関数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="1bit LLM Code Generator")
+    parser = argparse.ArgumentParser(description="4bit LLM Code Generator")
     parser.add_argument("--prompt", type=str, default="Hello, world! in Python", 
                        help="Code generation prompt")
     parser.add_argument("--language", type=str, default="python",

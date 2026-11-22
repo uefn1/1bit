@@ -1,18 +1,22 @@
 # 1bit LLM モデル設定
+# 注: 1bit量子化はBitNet専用です。一般的なモデルでは4bit量子化を使用します。
 
 model:
   # 選定モデル
-  name: "TinyLlama-1.1B-1bit"
+  name: "TinyLlama-1.1B-4bit"
   
   # HuggingFace HubのモデルID
-  # 1bit量子化はload_in_1bit=Trueで自動的に適用されます
-  # 代替モデル: "Qwen/Qwen2-0.5B", "microsoft/phi-2", "TinyLlama/TinyLlama-1.1B"
+  # 4bit量子化でメモリ使用量を削減
+  # 代替モデル: "Qwen/Qwen2-0.5B-Instruct", "microsoft/phi-2", "google/gemma-2b"
   huggingface_id: "TinyLlama/TinyLlama-1.1B"
   
   # 量子化設定
+  # 4bit量子化 (1bitはBitNet専用のため、一般モデルでは4bitを使用)
   quantization:
-    bits: 1
-    load_in_1bit: true
+    bits: 4
+    load_in_4bit: true
+    load_in_8bit: false
+    load_in_1bit: false
     
   # デバイス設定
   device: "auto"  # auto, cpu, cuda
