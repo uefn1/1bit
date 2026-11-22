@@ -1,9 +1,8 @@
 #!/usr/bin/env python3
 """
-4bit LLM コード生成スクリプト
+BitNet 1bit LLM コード生成スクリプト
 
-GitHub Actionsで動作する4bit量子化LLMを使用したコード生成
-注: 1bit量子化はBitNet専用です。一般的なモデルでは4bit量子化を使用します。
+GitHub Actionsで動作するBitNet 1bit量子化LLMを使用したコード生成
 """
 
 import torch
@@ -30,7 +29,7 @@ class CodeStoppingCriteria(StoppingCriteria):
 
 
 class BitLLMCodeGenerator:
-    """4bit/8bit LLMを使用したコード生成器"""
+    """BitNet 1bit / 4bit LLMを使用したコード生成器"""
     
     def __init__(self, config_path: str = "config.yaml"):
         """
@@ -49,24 +48,25 @@ class BitLLMCodeGenerator:
         with open(config_path, 'r', encoding='utf-8') as f:
             return yaml.safe_load(f)
     
+    def _is_bitnet_model(self, model_id: str) -> bool:
+        """BitNetモデルかどうかを判定"""
+        return "bitnet" in model_id.lower()
+    
     def _load_model(self):
         """モデルとトークナイザーを読み込む"""
-        print("Loading 4bit LLM model...")
+        print("Loading BitNet 1bit LLM model...")
         
         model_config = self.config['model']
         quant_config = model_config['quantization']
         
-        # フォールバックモデルリスト (小規模なモデルから順に試行)
-        # 4bit量子化を使用
-        fallback_models = [
+        # 設定ファイルからフォールバックモデルを取得
+        fallback_models = self.config.get('fallback_models', [
             model_config['huggingface_id'],
+            "microsoft/BitNet-3B-1bit",
+            "microsoft/BitNet-1.5B-1bit",
             "TinyLlama/TinyLlama-1.1B",
             "Qwen/Qwen2-0.5B-Instruct",
-            "Qwen/Qwen2-1.5B-Instruct",
-            "microsoft/phi-2",
-            "google/gemma-2b",
-            "google/gemma-7b",
-        ]
+        ])
         
         loaded_model_id = None
         
@@ -83,11 +83,17 @@ class BitLLMCodeGenerator:
                 )
                 
                 # 量子化設定を決定
-                # 4bit > 8bit > FP16の順に試行
                 quantization_kwargs = {}
                 
-                if quant_config.get('load_in_4bit', False):
-                    print(f"Trying 4bit quantization for {model_id}...")
+                # BitNetモデルの場合は1bit量子化
+                if self._is_bitnet_model(model_id) and quant_config.get('load_in_1bit', False):
+                    print(f"Loading {model_id} with 1bit quantization...")
+                    quantization_kwargs = {
+                        'load_in_1bit': True,
+                    }
+                # BitNetでない場合は4bit量子化
+                elif quant_config.get('load_in_4bit', False):
+                    print(f"Loading {model_id} with 4bit quantization...")
                     quantization_kwargs = {
                         'load_in_4bit': True,
                         'bnb_4bit_compute_dtype': torch.float16,
@@ -95,7 +101,7 @@ class BitLLMCodeGenerator:
                         'bnb_4bit_use_double_quant': True,
                     }
                 elif quant_config.get('load_in_8bit', False):
-                    print(f"Trying 8bit quantization for {model_id}...")
+                    print(f"Loading {model_id} with 8bit quantization...")
                     quantization_kwargs = {'load_in_8bit': True}
                 
                 # モデルの読み込み
@@ -141,7 +147,7 @@ class BitLLMCodeGenerator:
                 "All fallback models failed to load. "
                 "Please check your internet connection and HuggingFace Hub access. "
                 "You may need to run 'huggingface-cli login' to authenticate. "
-                "Available models: TinyLlama-1.1B, Qwen2-0.5B, phi-2, gemma-2b"
+                f"Tried models: {fallback_models}"
             )
         
         # GPUが利用可能な場合はGPUに移動
@@ -283,19 +289,31 @@ class BitLLMCodeGenerator:
     
     def get_model_info(self) -> Dict[str, Any]:
         """モデル情報を取得"""
-        return {
+        model_info = {
             "name": self.config['model']['name'],
             "huggingface_id": self.config['model']['huggingface_id'],
             "quantization": self.config['model']['quantization'],
             "device": self.config['model']['device'],
         }
+        
+        # BitNetモデルかどうかを追加
+        model_id = self.config['model']['huggingface_id']
+        model_info['is_bitnet'] = self._is_bitnet_model(model_id)
+        model_info['quantization_bits'] = (
+            1 if model_info['is_bitnet'] and model_info['quantization'].get('load_in_1bit') else
+            4 if model_info['quantization'].get('load_in_4bit') else
+            8 if model_info['quantization'].get('load_in_8bit') else
+            16
+        )
+        
+        return model_info
 
 
 def main():
     """メイン関数"""
     import argparse
     
-    parser = argparse.ArgumentParser(description="4bit LLM Code Generator")
+    parser = argparse.ArgumentParser(description="BitNet 1bit LLM Code Generator")
     parser.add_argument("--prompt", type=str, default="Hello, world! in Python", 
                        help="Code generation prompt")
     parser.add_argument("--language", type=str, default="python",
@@ -307,7 +325,17 @@ def main():
     args = parser.parse_args()
     
     # コード生成器を初期化
+    print("Initializing BitNet 1bit LLM Code Generator...")
     generator = BitLLMCodeGenerator()
+    
+    # モデル情報を表示
+    model_info = generator.get_model_info()
+    print(f"\nLoaded Model: {model_info['name']}")
+    print(f"HuggingFace ID: {model_info['huggingface_id']}")
+    print(f"Quantization: {model_info['quantization_bits']}bit")
+    print(f"Is BitNet: {model_info['is_bitnet']}")
+    print(f"Device: {model_info['device']}")
+    print("-" * 50)
     
     print(f"Generating {args.language} code for: {args.prompt}")
     print("-" * 50)
@@ -327,11 +355,6 @@ def main():
         with open(args.output, 'w', encoding='utf-8') as f:
             f.write(code)
         print(f"Code saved to: {args.output}")
-    
-    # モデル情報を表示
-    model_info = generator.get_model_info()
-    print(f"\nModel: {model_info['name']}")
-    print(f"Device: {model_info['device']}")
 
 
 if __name__ == "__main__":

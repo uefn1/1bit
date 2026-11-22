@@ -1,22 +1,21 @@
-# 1bit LLM モデル設定
-# 注: 1bit量子化はBitNet専用です。一般的なモデルでは4bit量子化を使用します。
+# BitNet 3B 1bit LLM モデル設定
 
 model:
   # 選定モデル
-  name: "TinyLlama-1.1B-4bit"
+  name: "BitNet-3B-1bit"
   
   # HuggingFace HubのモデルID
-  # 4bit量子化でメモリ使用量を削減
-  # 代替モデル: "Qwen/Qwen2-0.5B-Instruct", "microsoft/phi-2", "google/gemma-2b"
-  huggingface_id: "TinyLlama/TinyLlama-1.1B"
+  # BitNetはMicrosoft公式の1bit量子化モデル
+  # 1bit量子化 (重みとアクティベーションの両方を1bitに量子化)
+  huggingface_id: "microsoft/BitNet-3B-1bit"
   
   # 量子化設定
-  # 4bit量子化 (1bitはBitNet専用のため、一般モデルでは4bitを使用)
+  # BitNetは1bit量子化を本格的にサポート
   quantization:
-    bits: 4
-    load_in_4bit: true
+    bits: 1
+    load_in_1bit: true
+    load_in_4bit: false
     load_in_8bit: false
-    load_in_1bit: false
     
   # デバイス設定
   device: "auto"  # auto, cpu, cuda
@@ -70,3 +69,10 @@ github_actions:
   
   # タイムアウト
   timeout_minutes: 30
+
+# フォールバックモデル (BitNetが見つからない場合)
+fallback_models:
+  - "microsoft/BitNet-3B-1bit"
+  - "microsoft/BitNet-1.5B-1bit"
+  - "TinyLlama/TinyLlama-1.1B"
+  - "Qwen/Qwen2-0.5B-Instruct"
