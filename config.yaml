@@ -24,7 +24,7 @@ model:
   # 推論エンジン
   # "transformers" (デフォルト) - Python, ビルド不要, 1bit量子化サポート
   # "bitnet.cpp" - C++, 高速, GGUFフォーマット, ビルド必要
-  engine: "transformers"
+  engine: "bitnet.cpp"
   
   # デバイス設定
   device: "auto"  # auto, cpu, cuda

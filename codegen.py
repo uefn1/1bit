@@ -572,6 +572,9 @@ def main():
             # Clean up temp file
             import os
             os.unlink(temp_config)
+        else:
+            # Use default config
+            generator = BitNetCodeGenerator()
         
         # モデル情報を表示
         model_info = generator.get_model_info()
