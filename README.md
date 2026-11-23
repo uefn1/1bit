@@ -98,6 +98,10 @@ make -j$(nproc)
 ### 4. GGUFモデルをダウンロード
 
 ```bash
+# GitHub ReleasesからGGUFモデルをダウンロードします:
+# https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/ggml-model-i2_s.gguf
+# SHA256: 4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162
+#
 # HuggingFace HubからGGUFモデルをダウンロード
 # 注: 現在、BitNetのGGUFモデルは公開され次第更新します
 

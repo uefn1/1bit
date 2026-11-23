@@ -11,7 +11,7 @@ model:
   
   # Custom model options (optional)
   # Use either model_url or local_model_path, not both
-  model_url: null  # URL to custom model.safetensors (e.g., GitHub releases)
+  model_url: "https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/ggml-model-i2_s.gguf"  # URL to custom GGUF model (GitHub releases)
   local_model_path: null  # Local directory path containing model files
   
   # 量子化設定
