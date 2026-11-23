@@ -543,6 +543,10 @@ def main():
                        help="Output file path")
     parser.add_argument("--max-tokens", type=int, default=200,
                        help="Maximum tokens to generate")
+    parser.add_argument("--model-url", type=str, default=None,
+                       help="Custom model URL (e.g., GitHub releases)")
+    parser.add_argument("--local-model", type=str, default=None,
+                       help="Local model directory path")
     args = parser.parse_args()
     
     # コード生成器を初期化
