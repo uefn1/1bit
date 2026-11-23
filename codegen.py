@@ -96,12 +96,36 @@ class BitNetCodeGenerator:
         return "bitnet" in model_id.lower()
 
     def _download_model_from_url(self, url: str, target_dir: Path) -> Path:
-        """Download model.safetensors and all required files from URL and return the directory path"""
+        """Download model.safetensors and all required files from URL and return the directory path
+        
+        Supports:
+        - Individual files from GitHub releases (e.g., model.safetensors)
+        - Directory URLs containing all model files
+        - URL-encoded paths (e.g., microsoft%2Fbitnet-b1.58-2B-4T)
+        """
         target_dir.mkdir(parents=True, exist_ok=True)
         
+        # Decode URL-encoded characters (e.g., %2F -> /)
+        from urllib.parse import unquote
+        url = unquote(url)
+        
+        # Check if URL points to a zip file
+        if url.lower().endswith(".zip"):
+            print(f"Downloading and extracting zip file from {url}...")
+            import zipfile
+            import io
+            try:
+                with urllib.request.urlopen(url) as response:
+                    with zipfile.ZipFile(io.BytesIO(response.read())) as zip_ref:
+                        zip_ref.extractall(target_dir)
+                print(f"Zip file extracted to {target_dir}")
+                return target_dir
+            except Exception as e:
+                raise RuntimeError(f"Failed to download and extract zip file: {e}")
+        
         # Extract base URL (directory containing the files)
-        # URL format: https://github.com/uefn1/1bit/releases/download/models/model.safetensors
-        # We want: https://github.com/uefn1/1bit/releases/download/models/
+        # URL format: https://github.com/uefn1/1bit/releases/download/microsoft%2Fbitnet-b1.58-2B-4T/model.safetensors
+        # We want: https://github.com/uefn1/1bit/releases/download/microsoft%2Fbitnet-b1.58-2B-4T/
         if url.endswith("model.safetensors"):
             base_url = url[:-len("model.safetensors")]
         else:
