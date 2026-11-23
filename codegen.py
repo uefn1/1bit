@@ -96,66 +96,54 @@ class BitNetCodeGenerator:
         return "bitnet" in model_id.lower()
 
     def _download_model_from_url(self, url: str, target_dir: Path) -> Path:
-        """Download model.safetensors from URL and return the directory path"""
+        """Download model.safetensors and all required files from URL and return the directory path"""
         target_dir.mkdir(parents=True, exist_ok=True)
         
-        # Download model.safetensors
-        safetensors_path = target_dir / "model.safetensors"
-        print(f"Downloading model from {url}...")
-        try:
-            urllib.request.urlretrieve(url, safetensors_path)
-            print(f"Model downloaded to {safetensors_path}")
-        except Exception as e:
-            raise RuntimeError(f"Failed to download model from {url}: {e}")
+        # Extract base URL (directory containing the files)
+        # URL format: https://github.com/uefn1/1bit/releases/download/models/model.safetensors
+        # We want: https://github.com/uefn1/1bit/releases/download/models/
+        if url.endswith("model.safetensors"):
+            base_url = url[:-len("model.safetensors")]
+        else:
+            # If it's a directory URL, use it as is
+            base_url = url if url.endswith("/") else url + "/"
         
-        # We need config.json for BitNet
-        # Try to download from the same GitHub release or use default
-        config_url = url.replace("model.safetensors", "config.json")
-        config_path = target_dir / "config.json"
+        print(f"Downloading model files from: {base_url}")
         
-        try:
-            urllib.request.urlretrieve(config_url, config_path)
-            print(f"Config downloaded to {config_path}")
-        except Exception as e:
-            print(f"Could not download config from {config_url}, using default BitNet config")
-            # Create a minimal BitNet config
-            import json
-            bitnet_config = {
-                "architectures": ["BitNetForCausalLM"],
-                "vocab_size": 128256,
-                "hidden_size": 2560,
-                "intermediate_size": 6912,
-                "num_hidden_layers": 30,
-                "num_attention_heads": 20,
-                "num_key_value_heads": 5,
-                "hidden_act": "relu2",
-                "max_position_embeddings": 2048,
-                "initializer_range": 0.02,
-                "rms_norm_eps": 1e-05,
-                "use_cache": True,
-                "bos_token_id": 128000,
-                "eos_token_id": 128001,
-                "attention_bias": False,
-                "attention_dropout": 0.0
-            }
-            with open(config_path, "w") as f:
-                json.dump(bitnet_config, f)
-            print(f"Default config created at {config_path}")
+        # List of required files
+        required_files = [
+            "model.safetensors",
+            "config.json",
+            "generation_config.json",
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "special_tokens_map.json",
+        ]
         
-        # Download tokenizer files from the official model
-        # Use microsoft/bitnet-b1.58-2B-4T as reference
-        hf_model_id = "microsoft/bitnet-b1.58-2B-4T"
-        
-        try:
-            from transformers import AutoTokenizer
-            tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
-            tokenizer.save_pretrained(target_dir)
-            print(f"Tokenizer files saved from {hf_model_id}")
-        except Exception as e:
-            print(f"Warning: Could not download tokenizer files: {e}")
+        # Download all required files
+        for file_name in required_files:
+            file_url = base_url + file_name
+            file_path = target_dir / file_name
+            print(f"  Downloading {file_name}...")
+            try:
+                urllib.request.urlretrieve(file_url, file_path)
+                print(f"  Saved to {file_path}")
+            except Exception as e:
+                print(f"  Warning: Could not download {file_name} from {file_url}: {e}")
+                # For tokenizer files, try to get from official model
+                if file_name in ["tokenizer.json", "tokenizer_config.json", "special_tokens_map.json"]:
+                    print(f"  Attempting to download from official model...")
+                    try:
+                        from transformers import AutoTokenizer
+                        hf_model_id = "microsoft/bitnet-b1.58-2B-4T"
+                        tokenizer = AutoTokenizer.from_pretrained(hf_model_id)
+                        tokenizer.save_pretrained(target_dir)
+                        print(f"  Tokenizer files saved from {hf_model_id}")
+                        break  # Only need to do this once
+                    except Exception as e2:
+                        print(f"  Error: Could not download tokenizer: {e2}")
         
         return target_dir
-    
     def _load_transformers_model(self):
         """HuggingFace Transformersを使用してモデルを読み込む"""
         if not HAS_TRANSFORMERS:
