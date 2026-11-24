@@ -41,7 +41,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          submodules: recursive  # bitnet.cppサブモジュールを取得
+          submodules: recursive
       
       - name: Set up Python ${{ matrix.python-version }}
         uses: actions/setup-python@v4
@@ -56,22 +56,73 @@ jobs:
           sudo apt-get install -y --no-install-recommends \
             build-essential \
             cmake \
-            git
+            git \
+            wget \
+            unzip
       
       - name: Install Python dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
       
-      - name: Build bitnet.cpp (if requested)
-        if: ${{ github.event.inputs.use_bitnet_cpp == 'true' || github.event_name == 'push' }}
+      - name: Download BitNet repository ZIP
+        run: |
+          wget -O /tmp/BitNet-main.zip https://github.com/uefn1/1bit/releases/download/BitNet/BitNet-main.zip
+          unzip /tmp/BitNet-main.zip -d /tmp/
+          ls -la /tmp/BitNet-main/
+      
+      - name: Set up bitnet.cpp directory
+        run: |
+          # Remove existing bitnet directory if it exists
+          rm -rf bitnet
+          # Move the extracted BitNet-main to bitnet
+          mv /tmp/BitNet-main bitnet
+          # Initialize and update submodules
+          cd bitnet
+          git submodule update --init --recursive
+          cd ..
+      
+      - name: Download GGUF model and release files
+        run: |
+          # Create model directory
+          mkdir -p bitnet/models/bitnet-b1.58-2B-4T
+          
+          # Download GGUF model
+          wget -O bitnet/models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf \
+            https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/ggml-model-i2_s.gguf
+          
+          # Download other release files
+          wget -O data_summary_card.md \
+            https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/data_summary_card.md
+          
+          wget -O gitattributes.txt \
+            https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/gitattributes.txt
+          
+          wget -O release_README.md \
+            https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/README.md
+          
+          # Verify SHA256 of GGUF model
+          echo "Verifying GGUF model SHA256..."
+          echo "4221b252fdd5fd25e15847adfeb5ee88886506ba50b8a34548374492884c2162  bitnet/models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf" | sha256sum --check
+          
+          # Display file info
+          ls -lh bitnet/models/bitnet-b1.58-2B-4T/ggml-model-i2_s.gguf
+      
+      - name: Build bitnet.cpp with GGUF support
         run: |
           cd bitnet
           mkdir -p build
           cd build
-          cmake .. -DCMAKE_BUILD_TYPE=Release
+          cmake .. \
+            -DCMAKE_BUILD_TYPE=Release \
+            -DLLAMA_BUILD_COMMON=ON \
+            -DLLAMA_BUILD_TOOLS=ON \
+            -DLLAMA_BUILD_SERVER=ON
           make -j$(nproc)
           cd ../..
+          
+          # Verify llama-cli was built
+          ls -lh bitnet/build/bin/llama-cli
         timeout-minutes: 20
       
       - name: Cache HuggingFace models
@@ -85,16 +136,25 @@ jobs:
       - name: Generate code with BitNet
         id: codegen
         run: |
-          # 使用するエンジンを決定
+          # Display directory structure
+          echo "=== Directory Structure ==="
+          ls -la
+          echo "=== bitnet directory ==="
+          ls -la bitnet/
+          echo "=== bitnet/models ==="
+          ls -la bitnet/models/bitnet-b1.58-2B-4T/
+          echo "=== bitnet/build/bin ==="
+          ls -la bitnet/build/bin/
+          echo "==="
+          
+          # Run code generation with bitnet.cpp
           if [ "${{ github.event.inputs.use_bitnet_cpp }}" = "true" ]; then
-            # bitnet.cppを使用
             python codegen.py \
               --prompt "${{ github.event.inputs.prompt }}" \
               --language "${{ github.event.inputs.language }}" \
               --output "${{ github.event.inputs.output_file }}" \
               --max-tokens 500
           else
-            # HuggingFace Transformersを使用 (デフォルト)
             python codegen.py \
               --prompt "${{ github.event.inputs.prompt }}" \
               --language "${{ github.event.inputs.language }}" \
@@ -116,6 +176,16 @@ jobs:
         with:
           name: generated-code
           path: ${{ github.event.inputs.output_file || 'generated_code.py' }}
+          retention-days: 7
+      
+      - name: Upload release files as artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-files
+          path: |
+            data_summary_card.md
+            gitattributes.txt
+            release_README.md
           retention-days: 7
 
   test-code:
