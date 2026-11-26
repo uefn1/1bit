@@ -50,3 +50,14 @@ generated_*/
 # OS
 .DS_Store
 Thumbs.db
+
+# BitNet
+bitnet/
+bitnet-build/
+*.gguf
+*.zip
+
+# Release files
+data_summary_card.md
+gitattributes.txt
+release_README.md
