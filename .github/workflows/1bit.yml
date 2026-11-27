@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   inference:
-    runs-on: ubuntu-24.04   # ubuntu-latest から変更（Clang 18 が利用可能）
+    runs-on: ubuntu-24.04   # Clang 18 が標準リポジトリから利用可能
     timeout-minutes: 60
 
     steps:
@@ -30,10 +30,11 @@ jobs:
             clang-18 lld-18
 
       # 3. Python 環境のセットアップ
+      #    torch==2.11.0 が Python 3.10 以上を要求するため 3.10 を指定
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.9'
+          python-version: '3.10'
 
       # 4. BitNet リポジトリのクローン（サブモジュール含む）
       - name: Clone BitNet repository
