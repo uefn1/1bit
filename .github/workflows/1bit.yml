@@ -10,29 +10,37 @@ permissions:
 
 jobs:
   inference:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04   # ubuntu-latest から変更（Clang 18 が利用可能）
     timeout-minutes: 60
 
     steps:
+      # 1. ソースコードのチェックアウト
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # 2. 必要なシステムパッケージのインストール
+      #    Ubuntu 24.04 の標準リポジトリから Clang 18 をインストール
       - name: Install system dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y build-essential cmake git wget python3 python3-pip python3-venv libcurl4-openssl-dev
-          wget -O - https://apt.llvm.org/llvm.sh | sudo bash -s -- 18
-          sudo apt-get install -y clang-18 lld-18
+          sudo apt-get install -y \
+            build-essential cmake git wget \
+            python3 python3-pip python3-venv \
+            libcurl4-openssl-dev \
+            clang-18 lld-18
 
+      # 3. Python 環境のセットアップ
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.9'
 
+      # 4. BitNet リポジトリのクローン（サブモジュール含む）
       - name: Clone BitNet repository
         run: |
           git clone --recursive https://github.com/microsoft/BitNet.git
 
+      # 5. モデルファイルのダウンロード
       - name: Download BitNet b1.58-2B-4T GGUF model
         run: |
           mkdir -p models/BitNet-b1.58-2B-4T
@@ -45,14 +53,17 @@ jobs:
           wget -O models/BitNet-b1.58-2B-4T/README.md \
             https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/README.md
 
+      # 6. bitnet.cpp のビルド（setup_env.py を使用）
       - name: Build bitnet.cpp
         working-directory: ./BitNet
         run: |
           python3 -m venv venv
           source venv/bin/activate
+          pip install --upgrade pip
           pip install -r requirements.txt
           python setup_env.py -md ../models/BitNet-b1.58-2B-4T -q i2_s
 
+      # 7. 推論の実行とログ保存
       - name: Run inference and save log
         working-directory: ./BitNet
         run: |
@@ -64,17 +75,20 @@ jobs:
             -t 4 \
             -temp 0.7 \
             -cnv > inference.log 2>&1
-          # 推論結果をワークスペースにコピー（release アップロード用）
+          # Release アップロード用にワークスペース直下へコピー
           cp inference.log ../inference.log
 
+      # 8. 推論結果を GitHub Release にアップロード
       - name: Upload inference result to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: inference-${{ github.run_id }}   # 実行ごとに一意なタグ
-          name: "BitNet Inference Result (${{ github.run_id }})"
+          tag_name: inference-${{ github.run_id }}-${{ github.run_attempt }}
+          name: "BitNet Inference Result (${{ github.run_id }}-${{ github.run_attempt }})"
           body: |
             BitNet b1.58-2B-4T inference output.
-            Run ID: ${{ github.run_id }}
+            - Run ID: ${{ github.run_id }}
+            - Run Attempt: ${{ github.run_attempt }}
+            - Commit: ${{ github.sha }}
           files: inference.log
           draft: false
           prerelease: false
