@@ -10,8 +10,9 @@ permissions:
 
 jobs:
   inference:
-    runs-on: ubuntu-24.04   # Clang 18 が標準リポジトリから利用可能
-    timeout-minutes: 60
+    runs-on: ubuntu-24.04
+    # ビルドに時間がかかる場合に備え、タイムアウトを360分（GitHubホストランナーの実質上限）に延長
+    timeout-minutes: 360
 
     steps:
       # 1. ソースコードのチェックアウト
@@ -19,7 +20,7 @@ jobs:
         uses: actions/checkout@v4
 
       # 2. 必要なシステムパッケージのインストール
-      #    Ubuntu 24.04 の標準リポジトリから Clang 18 をインストール
+      #    clang-19 と ccache を導入（ビルドハング対策・高速化）
       - name: Install system dependencies
         run: |
           sudo apt-get update
@@ -27,21 +28,43 @@ jobs:
             build-essential cmake git wget \
             python3 python3-pip python3-venv \
             libcurl4-openssl-dev \
-            clang-18 lld-18
+            clang-19 lld-19 ccache
 
-      # 3. Python 環境のセットアップ
+      # 3. コンパイラを clang-19 に明示的に設定
+      #    BitNet のビルドハング（Issue #251）を回避するため
+      - name: Set compiler to clang-19
+        run: |
+          echo "CC=clang-19" >> $GITHUB_ENV
+          echo "CXX=clang++-19" >> $GITHUB_ENV
+
+      # 4. ccache のキャッシュをリストア（2回目以降のビルドを高速化）
+      - name: Setup ccache cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ${{ runner.os }}-ccache-${{ hashFiles('BitNet/3rdparty/llama.cpp/**') }}
+          restore-keys: |
+            ${{ runner.os }}-ccache-
+
+      # 5. ccache を CMake のコンパイラランチャーとして有効化
+      - name: Enable ccache for CMake
+        run: |
+          echo "CMAKE_C_COMPILER_LAUNCHER=ccache" >> $GITHUB_ENV
+          echo "CMAKE_CXX_COMPILER_LAUNCHER=ccache" >> $GITHUB_ENV
+
+      # 6. Python 環境のセットアップ
       #    torch==2.11.0 が Python 3.10 以上を要求するため 3.10 を指定
       - name: Set up Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.10'
 
-      # 4. BitNet リポジトリのクローン（サブモジュール含む）
+      # 7. BitNet リポジトリのクローン（サブモジュール含む）
       - name: Clone BitNet repository
         run: |
           git clone --recursive https://github.com/microsoft/BitNet.git
 
-      # 5. モデルファイルのダウンロード
+      # 8. モデルファイルと付属ドキュメントのダウンロード
       - name: Download BitNet b1.58-2B-4T GGUF model
         run: |
           mkdir -p models/BitNet-b1.58-2B-4T
@@ -54,19 +77,23 @@ jobs:
           wget -O models/BitNet-b1.58-2B-4T/README.md \
             https://github.com/uefn1/1bit/releases/download/bitnet-b1.58-2B-4T-gguf/README.md
 
-      # 6. bitnet.cpp のビルド（setup_env.py を使用）
+      # 9. bitnet.cpp のビルド（setup_env.py を使用）
+      #    ビルドステップ自体にもタイムアウトを設定し、ハング時に早期失敗させる
       - name: Build bitnet.cpp
         working-directory: ./BitNet
+        timeout-minutes: 120
         run: |
           python3 -m venv venv
           source venv/bin/activate
           pip install --upgrade pip
           pip install -r requirements.txt
+          # CC, CXX, CMAKE_*_COMPILER_LAUNCHER は前のステップで設定済み
           python setup_env.py -md ../models/BitNet-b1.58-2B-4T -q i2_s
 
-      # 7. 推論の実行とログ保存
+      # 10. 推論の実行とログ保存
       - name: Run inference and save log
         working-directory: ./BitNet
+        timeout-minutes: 30
         run: |
           source venv/bin/activate
           python run_inference.py \
@@ -79,7 +106,7 @@ jobs:
           # Release アップロード用にワークスペース直下へコピー
           cp inference.log ../inference.log
 
-      # 8. 推論結果を GitHub Release にアップロード
+      # 11. 推論結果を GitHub Release にアップロード
       - name: Upload inference result to GitHub Release
         uses: softprops/action-gh-release@v2
         with:
